@@ -54,6 +54,18 @@ func setup(p_game: Node) -> void:
 		show_screen.call_deferred(start)
 
 
+## Visible buttons' centres as fractions of the viewport, by label (web tests).
+func button_centres() -> Dictionary:
+	var out := {}
+	var vp := get_viewport_rect().size
+	for b in find_children("*", "Button", true, false):
+		var bt := b as Button
+		if bt.is_visible_in_tree() and bt.text != "":
+			var c := bt.get_global_rect().get_center()
+			out[bt.text] = [c.x / vp.x, c.y / vp.y]
+	return out
+
+
 func toast(t: String) -> void:
 	_toast.text = t
 	_toast_t = 2.2

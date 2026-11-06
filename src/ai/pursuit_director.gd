@@ -620,7 +620,12 @@ func _wreck(u: PoliceUnit) -> void:
 			radio.emit("We've lost %d units! Requesting backup." % stats["wrecked"] if stats["wrecked"] > 1 else "Unit down! Unit down!")
 
 
-func _on_police_impact(strength: float, _at: Vector3, _n: Vector3, other: Object, car: Car) -> void:
+func _on_police_impact(strength: float, at: Vector3, n: Vector3, other: Object, car: Car) -> void:
+	if strength > 6.0:
+		car.visual.dent(at, -n, clampf(strength / 70.0, 0.03, 0.22))
+		var fx := get_node_or_null("../Fx")
+		if fx and strength > 8.0 and other != player:
+			fx.impact(at, n, strength * 0.7, car.spec["paint"])
 	if other == player:
 		for u in units:
 			if u.car == car:

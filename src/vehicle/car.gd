@@ -27,7 +27,7 @@ const GRAVITY := 9.8
 const SLIP_PEAK := deg_to_rad(9.0)
 const RAY_MASK := 1 | (1 << 3)          # buildings/structures + street surface
 const BODY_LAYER := 1 << 2              # vehicles
-const BODY_MASK := 1 | (1 << 2) | (1 << 3) | (1 << 6)  # world, vehicles, street, trains
+const BODY_MASK := 1 | (1 << 2) | (1 << 3) | (1 << 6) | (1 << 7)  # world, vehicles, street, trains, solid props
 
 var spec: Dictionary
 ## Controls, set every frame by the driver (player input or an AI brain).

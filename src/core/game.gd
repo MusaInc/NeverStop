@@ -38,6 +38,10 @@ var hud: Hud
 var touch: TouchDrive
 var ui: CanvasLayer
 var audio: AudioDirector
+var fx: VehicleFx
+var props: Destructibles
+var jumps: Jumps
+var speed_fx: SpeedFx
 var menus: Node            # Menus (title, garage, records, settings, pause, results)
 var car_id := "kestrel"
 var last_result := {}
@@ -53,6 +57,13 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.trim_prefix("--").split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
+	if OS.has_feature("web"):
+		# The web test build takes the same options from the URL (?seed=3&debug=1).
+		var q = JavaScriptBridge.eval("window.location.search", true)
+		if q is String:
+			for part in (q as String).trim_prefix("?").split("&", false):
+				var kv2 := part.split("=", true, 1)
+				args[kv2[0]] = kv2[1] if kv2.size() > 1 else "1"
 	if args.has("save"):
 		SaveData.use_file(args["save"])
 	if args.has("quality"):
@@ -70,6 +81,13 @@ func _ready() -> void:
 			_shots.append(float(t))
 	if args.has("quit-after"):
 		_quit_after = float(args["quit-after"])
+	if args.has("selftest"):
+		# Packaged-build smoke test: a short autopilot chase at heat 3.
+		args["play"] = "1"
+		args["bot"] = "1"
+		args["heat"] = "3"
+		args["save"] = "user://selftest_save.json"
+		SaveData.use_file(args["save"])
 
 	atmosphere = Atmosphere.new()
 	atmosphere.name = "Atmosphere"
@@ -104,6 +122,8 @@ func _ready() -> void:
 	add_child(score)
 	ui = CanvasLayer.new()
 	add_child(ui)
+	var sfx := SpeedFx.new()
+	ui.add_child(sfx)
 	hud = Hud.new()
 	ui.add_child(hud)
 	touch = TouchDrive.new()
@@ -122,6 +142,8 @@ func _ready() -> void:
 	score.director = director
 	score.civilians = civilians
 	hud.bind(self, player, director, score)
+	sfx.player = player
+	speed_fx = sfx
 	hud.minimap.camera = camera
 	hud.minimap.bake.call_deferred(layout)
 	director.unit_wrecked.connect(func(u, _b): score.on_police_wrecked(u))
@@ -129,11 +151,30 @@ func _ready() -> void:
 	director.busted.connect(_on_busted)
 	director.spiked.connect(func(): camera.shake(0.4))
 	civilians.reset_around(player.global_position)
+	jumps = Jumps.new()
+	jumps.name = "Jumps"
+	add_child(jumps)
+	jumps.build(net)
+	print("Jumps: %d ramps" % jumps.spots.size())
+	civilians.jumps = jumps
+	props = Destructibles.new()
+	props.name = "Destructibles"
+	add_child(props)
+	props.setup(world)
+	print("Destructibles: %d breakable items" % props.count())
+	fx = VehicleFx.new()
+	fx.name = "Fx"
+	add_child(fx)
 	audio = AudioDirector.new()
 	audio.name = "Audio"
 	add_child(audio)
 	audio.attach(self, player, director)
 	score.event.connect(func(_l, pts, _c): if pts > 0: audio.event_chime(pts))
+	props.broke.connect(func(kind, at, by):
+		if by == player or player.global_position.distance_to(at) < 60.0:
+			audio.play_at("prop_hit", at, 2.0 if by == player else -2.0)
+		if by == player:
+			camera.shake(0.08 if kind in ["bin", "bollard", "sign_post"] else 0.18))
 	var menus_script: Script = load("res://src/ui/menus.gd") if ResourceLoader.exists("res://src/ui/menus.gd") else null
 	if menus_script:
 		menus = menus_script.new()
@@ -202,6 +243,8 @@ func spawn_player(id: String) -> void:
 		hud.player = player
 		hud.minimap.player = player
 		touch.car = player
+		if speed_fx:
+			speed_fx.player = player
 
 
 func start_run() -> void:
@@ -223,6 +266,7 @@ func start_run() -> void:
 	civilians.reset_around(player.global_position)
 	director.start(int(args.get("heat", "1")))
 	score.begin()
+	_scenario(args.get("scenario", ""))
 	hud.visible = true
 	touch.visible = hud.touch_mode
 	if audio:
@@ -248,6 +292,34 @@ func select_car(id: String) -> void:
 func ui_click() -> void:
 	if has_node("Audio"):
 		get_node("Audio").ui_click()
+
+
+## Test / capture set-ups (--scenario=...):
+##   ramp   at speed, 70 m before a kicker ramp, lined up with it
+##   swarm  heat 8: the extreme pursuit (benchmarks)
+func _scenario(name: String) -> void:
+	match name:
+		"ramp":
+			if jumps.spots.is_empty():
+				return
+			var xf: Transform3D = jumps.spots[int(args.get("ramp", "0")) % jumps.spots.size()]
+			var fwd := -xf.basis.z
+			var at := xf.origin - fwd * 70.0
+			at.y = layout.ground_y(at.x, at.z) + 0.4
+			player.place(Transform3D(xf.basis, at), fwd * 32.0)
+			camera.set_target(player, true)
+			if bot:
+				var line := PackedVector3Array()
+				for k in 64:
+					var q := at + fwd * (k * 3.0)
+					q.y = layout.ground_y(q.x, q.z)
+					line.append(q)
+				bot.set_path(line)
+				_bot_t = 6.0
+			world.build_all_near(at, 300.0)
+			civilians.reset_around(at)
+		"swarm":
+			director.start(8)
 
 
 func enter_menu() -> void:
@@ -277,6 +349,9 @@ func pause() -> void:
 	if menus:
 		menus.show_screen("pause")
 	state_changed.emit(state)
+	if OS.has_feature("web"):
+		_web_t = 0.0
+		_publish_web(0.0)
 
 
 func resume() -> void:
@@ -327,6 +402,8 @@ func _on_player_impact(strength: float, at: Vector3, n: Vector3, other: Object) 
 	camera.shake(clampf(strength / 30.0, 0.1, 0.8))
 	if player_visual:
 		player_visual.dent(at, -n, clampf(strength / 60.0, 0.03, 0.25))
+	if fx and strength > 4.0:
+		fx.impact(at, n, strength, player.spec["paint"])
 	Settings.haptic(int(clampf(strength * 4.0, 20.0, 160.0)), clampf(strength / 25.0, 0.3, 1.0))
 
 
@@ -335,6 +412,14 @@ func _physics_process(dt: float) -> void:
 	RenderingServer.global_shader_parameter_set(&"player_pos", player.global_position)
 	if bot:
 		_drive_bot(dt)
+	if fx:
+		var list: Array = [player]
+		for u in director.units:
+			if u.car:
+				list.append(u.car)
+		list.append_array(civilians.active_cars())
+		fx.cars = list
+		props.cars = list
 	if args.has("trace") and Engine.get_physics_frames() % 30 == 0:
 		var hits := []
 		for i in 4:
@@ -363,6 +448,7 @@ func _physics_process(dt: float) -> void:
 		_bust_t += dt / maxf(Engine.time_scale, 0.01)
 		if _bust_t > 3.2 and Engine.time_scale < 1.0:
 			Engine.time_scale = 1.0
+			hud.visible = false
 			if menus:
 				menus.show_results(last_result)
 
@@ -381,7 +467,7 @@ func recover_player() -> void:
 
 func _drive_bot(dt: float) -> void:
 	_bot_t -= dt
-	if _bot_t <= 0.0 or bot.remaining() < 15:
+	if _bot_t <= 0.0 or (bot.remaining() < 15 and _bot_t < 5.0):
 		_bot_t = 2.0
 		var near := net.nearest(player.global_position, -player.global_basis.z, 40.0)
 		if not near.is_empty():
@@ -389,7 +475,44 @@ func _drive_bot(dt: float) -> void:
 	bot.update(dt, get_world_3d().direct_space_state)
 
 
+var _selftest_start := Vector3.INF
+var _web_t := 0.0
+
+
+## Web test hook: publishes the game state as window.__ns (debug builds or
+## ?debug=1 only) so tools/web/web_test.mjs can drive the real build.
+func _publish_web(dt: float) -> void:
+	_web_t -= dt
+	if _web_t > 0.0:
+		return
+	_web_t = 0.25
+	var st := {
+		"state": ["menu", "playing", "paused", "busted", "garage"][state],
+		"screen": menus.current if menus else "",
+		"speed": player.speed * 3.6, "steer": player.steer, "brake": player.brake, "throttle": player.throttle,
+		"heat": director.heat, "police": director.alive_count(), "cars": director.physical_count(),
+		"score": score.score, "time": score.time, "bust": director.bust, "touch": touch.visible,
+		"fps": Engine.get_frames_per_second(),
+	}
+	if menus and menus.has_method("button_centres"):
+		st["buttons"] = menus.button_centres()
+	st["touch_buttons"] = touch.button_centres()
+	JavaScriptBridge.eval("window.__ns = %s;" % JSON.stringify(st), true)
+
+
 func _process(_dt: float) -> void:
+	if OS.has_feature("web") and (OS.is_debug_build() or args.has("debug")):
+		_publish_web(_dt)
+	if args.has("selftest"):
+		if _selftest_start == Vector3.INF and _time > 0.5:
+			_selftest_start = player.global_position
+		if _time > 12.0:
+			var moved := player.global_position.distance_to(_selftest_start)
+			var ok := moved > 40.0 and director.alive_count() > 0 and civilians.active_cars().size() > 0
+			print("SELFTEST moved %.0f m, %d police, %d civilians, score %d: %s" % [moved, director.alive_count(),
+				civilians.active_cars().size(), score.score, "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+			return
 	if _quit_after > 0.0 and _time >= _quit_after:
 		get_tree().quit()
 	if not _shots.is_empty() and _time >= float(_shots[0]):

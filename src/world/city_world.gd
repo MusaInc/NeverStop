@@ -49,6 +49,13 @@ var traffic: Traffic
 ## CitySwing's GPU-animated traffic has no collision: off in NEVER STOP
 ## (CivilianTraffic drives real cars instead).
 var gpu_traffic := false
+## Street furniture knocked down this session (Destructibles): item key ->
+## true. Filtered out of chunk_props / chunk_furniture, so a chunk that
+## streams back in doesn't resurrect it.
+var broken := {}
+## Props cars crash into rather than flatten (on their own collision layer).
+const SOLID_PROPS := ["tree", "tree_tall", "bus_shelter", "planter"]
+const SOLID_LAYER := 1 << 7
 var max_builds_per_frame := 2
 
 var building_mat: ShaderMaterial
@@ -751,13 +758,22 @@ func _build_prop_collision() -> void:
 		soft.name = "PropsHuman_%d_%d" % [key.x, key.y]
 		soft.collision_layer = HUMAN_LAYER
 		soft.collision_mask = 0
+		var solid := StaticBody3D.new()
+		solid.name = "PropsSolid_%d_%d" % [key.x, key.y]
+		solid.collision_layer = PROPS_LAYER | SOLID_LAYER
+		solid.collision_mask = 0
 		var items: Array = chunk_props(key) + chunk_furniture(key)
 		for it in items:
 			var kind: String = it[0]
 			if not cache.has(kind):
 				cache[kind] = _prop_boxes(kind)
 			for bx in cache[kind]:
-				_add_oriented_box(soft if kind in HUMAN_ONLY_PROPS else body, it[1], bx[0], bx[1])
+				var target := soft if kind in HUMAN_ONLY_PROPS else (solid if kind in SOLID_PROPS else body)
+				_add_oriented_box(target, it[1], bx[0], bx[1])
+		if solid.get_child_count() > 0:
+			add_child(solid)
+		else:
+			solid.free()
 		if soft.get_child_count() > 0:
 			add_child(soft)
 		else:
@@ -1203,8 +1219,36 @@ func chunk_props(key: Vector2i) -> Array:
 			if h % 5 < 2 and prop_meshes.has("tree_tall"):
 				kind = "tree_tall"
 			xf.basis = xf.basis * Basis(Vector3.UP, (h % 628) * 0.01)
+		if not broken.is_empty() and broken.has(item_key(xf.origin)):
+			continue
 		out.append([kind, xf])
 	return out
+
+
+static func item_key(p: Vector3) -> Vector3i:
+	return Vector3i(roundi(p.x * 10.0), roundi(p.y * 10.0), roundi(p.z * 10.0))
+
+
+## Rebuilds a loaded chunk's props and furniture (after something broke).
+func refresh_props(key: Vector2i) -> void:
+	var root: Node3D = _loaded.get(key)
+	if root == null:
+		return
+	for ch in root.get_children():
+		if ch.name.begins_with("Props_") or ch.name == "Furniture" or ch.name.begins_with("Lamp"):
+			root.remove_child(ch)
+			ch.queue_free()
+	_add_props(root, key)
+	var arr = _furniture_arrays(key)
+	var furn := _mesh_from(arr)
+	if furn:
+		var fi := MeshInstance3D.new()
+		fi.name = "Furniture"
+		fi.mesh = furn
+		fi.material_override = furniture_mat
+		fi.visibility_range_end = FURNITURE_RANGE
+		fi.visibility_range_end_margin = 20.0
+		root.add_child(fi)
 
 
 ## Furniture drawn in a chunk at the current density: [kind, Transform3D].
@@ -1214,6 +1258,8 @@ func chunk_furniture(key: Vector2i) -> Array:
 	for it in _furniture_by_chunk.get(key, []):
 		n += 1
 		if prop_density < 1.0 and fmod(n * 0.618, 1.0) > prop_density:
+			continue
+		if not broken.is_empty() and broken.has(item_key((it[1] as Transform3D).origin)):
 			continue
 		out.append(it)
 	return out
@@ -1448,6 +1494,8 @@ static func _car_kind(r: float) -> int:
 ## random stream per chunk, independent of the traffic density, so the
 ## collision built up front matches what the chunk later draws.
 func parked_cars(key: Vector2i) -> Array:
+	if not gpu_traffic:
+		return []  # (NEVER STOP: no static parked cars – only real, hittable traffic)
 	var rect := Rect2(Vector2(key) * CHUNK, Vector2(CHUNK, CHUNK))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(key) ^ 0x9a4c

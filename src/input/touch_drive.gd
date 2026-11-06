@@ -142,6 +142,17 @@ func _process(_dt: float) -> void:
 	queue_redraw()
 
 
+## Button centres as viewport fractions (web tests).
+func button_centres() -> Dictionary:
+	_layout()
+	var vp := get_viewport_rect().size
+	var out := {}
+	for k in _rects:
+		var c := (_rects[k] as Rect2).get_center()
+		out[k] = [c.x / vp.x, c.y / vp.y]
+	return out
+
+
 func release_all() -> void:
 	_btn_touch.clear()
 	_pressed.clear()

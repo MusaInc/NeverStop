@@ -31,6 +31,7 @@ var cars: Array = []        # [{car, path, i, v, lane, wrecked, t_wreck, offset}
 var _ray := PhysicsRayQueryParameters3D.new()
 var _respawn_t := 0.0
 var enabled := true
+var jumps: Jumps
 
 
 func setup(p_net: RoadNet, p_player: Car, p_camera: ChaseCamera, p_director: PursuitDirector) -> void:
@@ -163,6 +164,8 @@ func _pose(c: Dictionary, dt: float) -> void:
 	dir = dir.normalized()
 	var right := Vector3(-dir.z, 0.0, dir.x).normalized()
 	p += right * float(c["offset"])
+	if jumps:
+		p.y = maxf(p.y, jumps.height_at(p))
 	var basis := Basis.looking_at(dir, Vector3.UP)
 	var xf := Transform3D(basis, p + Vector3.UP * 0.02)
 	if dt > 0.0:
