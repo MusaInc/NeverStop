@@ -211,6 +211,7 @@ func lane_dir(lane: int, s: float) -> Vector3:
 ## Nearest lane point to p: {lane, s, dist, pos}. With a heading, lanes going
 ## the other way cost extra (so a car picks its own side of the road).
 func nearest(p: Vector3, heading := Vector3.ZERO, max_d := 40.0, exclude := -1, skip_conn := false) -> Dictionary:
+	Prof.begin("nearest")
 	var best := {}
 	var bscore := INF
 	var r := int(ceil(max_d / CELL))
@@ -237,7 +238,9 @@ func nearest(p: Vector3, heading := Vector3.ZERO, max_d := 40.0, exclude := -1, 
 				if score < bscore:
 					bscore = score
 					best = {"lane": li, "s": i * STEP, "dist": d, "pos": q}
+	Prof.end("nearest")
 	return best
+	Prof.end("nearest")
 
 
 ## Next graph node at or after s on a lane.
@@ -263,6 +266,7 @@ class Field:
 ## Reverse Dijkstra from the lane node nearest `target`: dist[n] = road metres
 ## from node n to the target.
 func flow_field(target: Vector3, heading := Vector3.ZERO) -> Field:
+	Prof.begin("flow_field")
 	var f := Field.new()
 	f.target = target
 	var n := node_count()
@@ -273,6 +277,7 @@ func flow_field(target: Vector3, heading := Vector3.ZERO) -> Field:
 	if near.is_empty():
 		near = nearest(target, Vector3.ZERO, 400.0)
 	if near.is_empty():
+		Prof.end("flow_field")
 		return f
 	# Seed: the nodes either side of the target on its lane.
 	var lane: int = near["lane"]
@@ -301,6 +306,78 @@ func flow_field(target: Vector3, heading := Vector3.ZERO) -> Field:
 			if nd < f.dist[v]:
 				f.dist[v] = nd
 				_push(heap_d, heap_n, nd, v)
+	Prof.end("flow_field")
+	return f
+	Prof.end("flow_field")
+
+
+## A flow field computed a slice at a time (so it never costs a frame
+## spike): start(), then step(budget_usec) every frame until it returns true.
+class FieldJob:
+	var net
+	var field: Field
+	var hd := PackedFloat32Array()
+	var hn := PackedInt32Array()
+	var done := true
+
+	func _init(p_net) -> void:
+		net = p_net
+
+	func start(target: Vector3, heading := Vector3.ZERO) -> void:
+		field = net.flow_field_seed(target, heading, hd, hn)
+		done = false
+
+	func step(budget_usec: int) -> bool:
+		if done:
+			return true
+		var t0 := Time.get_ticks_usec()
+		var dist := field.dist
+		var k := 0
+		while hn.size() > 0:
+			var top := RoadNet._pop(hd, hn)
+			var d: float = top[0]
+			var u: int = top[1]
+			if d > dist[u]:
+				continue
+			var ie: PackedInt32Array = net.in_edges[u]
+			var ic: PackedFloat32Array = net.in_cost[u]
+			for e in ie.size():
+				var v := ie[e]
+				var nd := d + ic[e]
+				if nd < dist[v]:
+					dist[v] = nd
+					RoadNet._push(hd, hn, nd, v)
+			k += 1
+			if (k & 31) == 0 and Time.get_ticks_usec() - t0 > budget_usec:
+				field.dist = dist
+				return false
+		field.dist = dist
+		done = true
+		return true
+
+
+## Seeds a field (all INF but the target's lane) and its heap.
+func flow_field_seed(target: Vector3, heading: Vector3, hd: PackedFloat32Array, hn: PackedInt32Array) -> Field:
+	var f := Field.new()
+	f.target = target
+	f.dist = PackedFloat32Array()
+	f.dist.resize(node_count())
+	f.dist.fill(INF)
+	hd.clear()
+	hn.clear()
+	var near := nearest(target, heading, 80.0)
+	if near.is_empty():
+		near = nearest(target, Vector3.ZERO, 400.0)
+	if near.is_empty():
+		return f
+	var lane: int = near["lane"]
+	f.lane = lane
+	f.s = near["s"]
+	for id in lane_nodes[lane]:
+		var dd := node_s[id] - float(near["s"])
+		if dd <= 0.0 or lane_loop[lane] == 1:
+			f.dist[id] = absf(dd)
+			_push(hd, hn, absf(dd), id)
 	return f
 
 

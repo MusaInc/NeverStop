@@ -93,7 +93,9 @@ static func _box(s: Vector3) -> Mesh:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("heli")
 	if target == null or not is_instance_valid(target):
+		Prof.end("heli")
 		return
 	_t += dt
 	_rotor.rotate_y(dt * 28.0)
@@ -119,3 +121,6 @@ func _physics_process(dt: float) -> void:
 	var night: float = atmo.night if atmo else 0.0
 	light.visible = night > 0.2
 	light.light_energy = 6.0 * night
+	Prof.end("heli")
+
+

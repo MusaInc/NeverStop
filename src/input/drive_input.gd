@@ -20,9 +20,12 @@ func _ready() -> void:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("input")
 	if car == null or not is_instance_valid(car):
+		Prof.end("input")
 		return
 	if not enabled:
+		Prof.end("input")
 		return  # someone else (autopilot, cinematic) is driving
 	var key_steer := Input.get_action_strength("steer_right") - Input.get_action_strength("steer_left")
 	var steer := key_steer if absf(key_steer) > absf(touch_steer) else touch_steer
@@ -44,3 +47,6 @@ func _physics_process(dt: float) -> void:
 	car.brake = brake
 	car.handbrake = Input.is_action_pressed("handbrake") or touch_handbrake
 	car.nitro = Input.is_action_pressed("nitro") or touch_nitro
+	Prof.end("input")
+
+

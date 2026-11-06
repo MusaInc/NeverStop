@@ -81,6 +81,7 @@ func _ready() -> void:
 			_shots.append(float(t))
 	if args.has("quit-after"):
 		_quit_after = float(args["quit-after"])
+	Prof.enabled = args.has("bench")
 	if args.has("selftest"):
 		# Packaged-build smoke test: a short autopilot chase at heat 3.
 		args["play"] = "1"
@@ -180,6 +181,11 @@ func _ready() -> void:
 		menus = menus_script.new()
 		ui.add_child(menus)
 		menus.setup(self)
+	if args.has("gametest"):
+		var gt: Node = load("res://tests/game_tests.gd").new()
+		gt.game = self
+		add_child(gt)
+		return
 	if args.has("play") or (args.has("shot") and not args.has("menu")) or menus == null:
 		start_run()
 	else:
@@ -264,7 +270,13 @@ func start_run() -> void:
 		bot.skill = 0.9
 		input.enabled = false
 	civilians.reset_around(player.global_position)
+	if args.has("nociv"):
+		civilians.enabled = false
+		for c in civilians.cars:
+			civilians._park(c)
 	director.start(int(args.get("heat", "1")))
+	if args.has("nopolice"):
+		director.active = false
 	score.begin()
 	_scenario(args.get("scenario", ""))
 	hud.visible = true
@@ -320,6 +332,25 @@ func _scenario(name: String) -> void:
 			civilians.reset_around(at)
 		"swarm":
 			director.start(8)
+		"carbench":
+			# N plain cars on lanes round the player, full throttle, no AI.
+			var n := int(args.get("n", "10"))
+			for i in n:
+				var q := player.global_position + Vector3(rng.randf_range(-150, 150), 0, rng.randf_range(-150, 150))
+				var nr := net.nearest(q, Vector3.ZERO, 60.0, -1, true)
+				if nr.is_empty():
+					continue
+				var c := Car.new()
+				c.setup(CarCatalog.police_spec("patrol"), "police")
+				add_child(c)
+				if args.has("vis"):
+					var v := CarVisual.new()
+					c.add_child(v)
+					v.setup(c)
+					v.set_siren(true)
+				var d := net.lane_dir(nr["lane"], nr["s"])
+				c.place(Transform3D(Basis.looking_at(d, Vector3.UP), (nr["pos"] as Vector3) + Vector3.UP * 0.4), d * 10.0)
+				c.throttle = 0.6
 
 
 func enter_menu() -> void:
@@ -408,6 +439,7 @@ func _on_player_impact(strength: float, at: Vector3, n: Vector3, other: Object) 
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("game")
 	_time += dt
 	RenderingServer.global_shader_parameter_set(&"player_pos", player.global_position)
 	if bot:
@@ -451,6 +483,7 @@ func _physics_process(dt: float) -> void:
 			hud.visible = false
 			if menus:
 				menus.show_results(last_result)
+	Prof.end("game")
 
 
 ## Puts the car back on the nearest lane facing along it (context recovery).
@@ -476,6 +509,8 @@ func _drive_bot(dt: float) -> void:
 
 
 var _selftest_start := Vector3.INF
+var _bench: Array = []          # [process ms, physics ms, physical cars, units]
+var _bench_wall := 0
 var _web_t := 0.0
 
 
@@ -513,11 +548,40 @@ func _process(_dt: float) -> void:
 				civilians.active_cars().size(), score.score, "OK" if ok else "FAIL"])
 			get_tree().quit(0 if ok else 1)
 			return
+	if args.has("bench"):
+		# Wall-clock cost of each whole frame (headless --fixed-fps runs flat
+		# out, so this is the CPU time of script + physics + audio + UI).
+		var now := Time.get_ticks_usec()
+		if _bench_wall > 0 and _time > 3.0:
+			_bench.append([(now - _bench_wall) / 1000.0, Prof.frame_ms(), director.physical_count(), director.alive_count()])
+		_bench_wall = now
 	if _quit_after > 0.0 and _time >= _quit_after:
+		if args.has("bench"):
+			_bench_report()
 		get_tree().quit()
 	if not _shots.is_empty() and _time >= float(_shots[0]):
 		var t: float = _shots.pop_front()
 		_capture(t)
+
+
+## CPU cost of the simulation (this machine): averages, 95th percentile and
+## worst frame of script/physics time, with the pursuit size it handled.
+func _bench_report() -> void:
+	if _bench.is_empty():
+		return
+	for col in [0, 1]:
+		var v: Array = _bench.map(func(r): return r[col])
+		v.sort()
+		var avg: float = v.reduce(func(a, b): return a + b, 0.0) / v.size()
+		print("BENCH %s ms: avg %.2f  p95 %.2f  p99 %.2f  max %.2f" % [["frame (wall)", "scripts (profiled)"][col], avg,
+			v[int(v.size() * 0.95)], v[int(v.size() * 0.99)], v[-1]])
+	var cars: Array = _bench.map(func(r): return r[2])
+	var units: Array = _bench.map(func(r): return r[3])
+	print("BENCH physics3d: active %d  pairs %d  islands %d" % [Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS),
+		Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS), Performance.get_monitor(Performance.PHYSICS_3D_ISLAND_COUNT)])
+	print("BENCH pursuit: physical cars max %d, units max %d, heat %d, frames %d, wrecked %d" % [cars.max(), units.max(),
+		director.heat, _bench.size(), director.stats["wrecked"]])
+	Prof.report(Engine.get_physics_frames())
 
 
 func _capture(t: float) -> void:

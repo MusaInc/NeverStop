@@ -77,7 +77,9 @@ func break_chain() -> void:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("score")
 	if not running or player == null:
+		Prof.end("score")
 		return
 	time += dt
 	var heat := director.heat if director else 1
@@ -115,6 +117,7 @@ func _physics_process(dt: float) -> void:
 	else:
 		_fast_run = 0.0
 	_near_misses()
+	Prof.end("score")
 
 
 func on_landed(airtime: float, _impact: float) -> void:

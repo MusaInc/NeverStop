@@ -182,7 +182,9 @@ func _pose(c: Dictionary, dt: float) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("civilians")
 	if not enabled or player == null:
+		Prof.end("civilians")
 		return
 	var pp := player.global_position
 	_respawn_t -= dt
@@ -228,6 +230,7 @@ func _physics_process(dt: float) -> void:
 			_respawn_t = 0.05
 			if not _on_screen(car.global_position):
 				_respawn(c, pp)
+	Prof.end("civilians")
 
 
 func _gap_ahead(car: Car, fwd: Vector3, police: Array) -> float:

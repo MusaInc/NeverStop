@@ -59,6 +59,7 @@ func count() -> int:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("props")
 	for c: Car in cars:
 		if not is_instance_valid(c) or c.freeze or not c.visible or c.speed < 4.0:
 			continue
@@ -78,6 +79,7 @@ func _physics_process(dt: float) -> void:
 		else:
 			keep.append(p)
 	_pieces = keep
+	Prof.end("props")
 
 
 var _dirty_world := {}

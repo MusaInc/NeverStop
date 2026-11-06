@@ -75,16 +75,19 @@ func remaining() -> int:
 
 
 func update(dt: float, space: PhysicsDirectSpaceState3D) -> void:
+	Prof.begin("driver")
 	if car.disabled:
 		car.throttle = 0.0
 		car.brake = 1.0
 		car.steer = 0.0
+		Prof.end("driver")
 		return
 	if brake_hold:
 		car.throttle = 0.0
 		car.brake = 1.0
 		car.handbrake = car.speed < 2.0
 		car.steer = 0.0
+		Prof.end("driver")
 		return
 	# Stuck: back out.
 	if _reverse_t > 0.0:
@@ -93,11 +96,13 @@ func update(dt: float, space: PhysicsDirectSpaceState3D) -> void:
 		car.brake = 1.0
 		car.handbrake = false
 		car.steer = _reverse_steer
+		Prof.end("driver")
 		return
 	if car.stuck_time > 1.1:
 		_reverse_t = 1.2
 		_reverse_steer = -signf(car.steer + 0.01)
 		car.stuck_time = 0.0
+		Prof.end("driver")
 		return
 	var xf := car.global_transform
 	var pos := xf.origin
@@ -120,6 +125,7 @@ func update(dt: float, space: PhysicsDirectSpaceState3D) -> void:
 			car.throttle = 0.0
 			car.brake = 0.6
 			car.steer = 0.0
+			Prof.end("driver")
 			return
 		var look := 5.0 + spd * 0.45
 		var k := path_i
@@ -187,6 +193,7 @@ func update(dt: float, space: PhysicsDirectSpaceState3D) -> void:
 	if absf(ang) > 2.3 and spd < 4.0 and to.length() < 25.0:
 		_reverse_t = 0.8
 		_reverse_steer = signf(ang)
+	Prof.end("driver")
 
 
 func _whiskers(space: PhysicsDirectSpaceState3D, pos: Vector3, fwd: Vector3, right: Vector3, spd: float) -> void:

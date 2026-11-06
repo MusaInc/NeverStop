@@ -88,9 +88,11 @@ func chase() -> void:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("camera")
 	# Physics-rate so the lens moves in lockstep with the car (no jitter
 	# from interpolating a body that moves at 60 Hz under a 120 Hz display).
 	if target == null or not is_instance_valid(target):
+		Prof.end("camera")
 		return
 	_t += dt
 	match mode:
@@ -101,6 +103,7 @@ func _physics_process(dt: float) -> void:
 		_:
 			_chase(dt)
 	_apply_shake(dt)
+	Prof.end("camera")
 
 
 func _chase(dt: float) -> void:

@@ -78,6 +78,11 @@ var _ray := PhysicsRayQueryParameters3D.new()
 var _player_lane := -1
 var _player_s := 0.0
 var _player_near := {}
+## Fairness audit (tests): road/straight distance and visibility of every
+## spawn and promotion: [kind ("spawn"|"promote"), metres, was visible].
+var audit: Array = []
+var _chase_job: RoadNet.FieldJob
+var _icpt_job: RoadNet.FieldJob
 
 
 func setup(p_game: Node, p_net: RoadNet, p_player: Car, p_camera: ChaseCamera) -> void:
@@ -86,6 +91,8 @@ func setup(p_game: Node, p_net: RoadNet, p_player: Car, p_camera: ChaseCamera) -
 	player = p_player
 	camera = p_camera
 	_ray.collision_mask = 1
+	_chase_job = RoadNet.FieldJob.new(net)
+	_icpt_job = RoadNet.FieldJob.new(net)
 	var st := get_node_or_null("/root/Settings")
 	if st:
 		max_cars = st.preset()["cars_near"]
@@ -96,6 +103,8 @@ func start(p_heat := 1) -> void:
 	clear()
 	active = true
 	time = HEAT_AT[clampi(p_heat - 1, 0, HEAT_AT.size() - 1)]
+	if p_heat > HEAT_AT.size():
+		time = HEAT_AT[-1] + (p_heat - HEAT_AT.size()) * HEAT_STEP_AFTER
 	heat = p_heat
 	heat_bonus = 0.0
 	bust = 0.0
@@ -162,7 +171,9 @@ func alive_count() -> int:
 
 # ---------------------------------------------------------------- frame
 func _physics_process(dt: float) -> void:
+	Prof.begin("director")
 	if not active or player == null:
+		Prof.end("director")
 		return
 	time += dt
 	var h := heat_for_time(time + heat_bonus)
@@ -174,11 +185,17 @@ func _physics_process(dt: float) -> void:
 	_field_t -= dt
 	if _field_t <= 0.0:
 		_field_t = 0.5
-		chase_field = net.flow_field(player.global_position, _player_heading())
+		if _chase_job.done:
+			_chase_job.start(player.global_position, _player_heading())
 	_icpt_t -= dt
 	if _icpt_t <= 0.0:
 		_icpt_t = 1.5
 		_update_intercept()
+	# Field jobs: ~1.2 ms a frame between them; swap in when finished.
+	if not _chase_job.done and _chase_job.step(900):
+		chase_field = _chase_job.field
+	if not _icpt_job.done and _icpt_job.step(500):
+		intercept_field = _icpt_job.field
 	_dispatch(dt)
 	var space := get_world_3d().direct_space_state
 	var pp := player.global_position
@@ -190,6 +207,7 @@ func _physics_process(dt: float) -> void:
 	_bust_update(dt, pp)
 	_cleanup(pp)
 	stats["max_units"] = maxi(stats["max_units"], alive_count())
+	Prof.end("director")
 
 
 func _player_heading() -> Vector3:
@@ -249,7 +267,8 @@ func _update_intercept() -> void:
 		s = net._advance_s(id, best)
 		lane = net.node_lane[best]
 	intercept_point = p
-	intercept_field = net.flow_field(p)
+	if _icpt_job.done:
+		_icpt_job.start(p)
 
 
 # ---------------------------------------------------------------- dispatch
@@ -299,6 +318,8 @@ func _new_unit(kind: String, role: String) -> PoliceUnit:
 	u.spawn_time = time
 	u.state = "intercept" if role == "interceptor" else "respond"
 	units.append(u)
+	if audit.size() < 500:
+		audit.append(["spawn", u.pos.distance_to(player.global_position), _visible(u.pos + Vector3.UP)])
 	return u
 
 
@@ -535,6 +556,8 @@ func _clear(p: Vector3) -> bool:
 
 
 func _promote(u: PoliceUnit) -> void:
+	if audit.size() < 500:
+		audit.append(["promote", u.pos.distance_to(player.global_position), _visible(u.pos + Vector3.UP)])
 	var car := _take_car(u.kind)
 	u.car = car
 	var dir := u.heading

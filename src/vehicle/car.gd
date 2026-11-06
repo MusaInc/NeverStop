@@ -174,7 +174,9 @@ func max_steer_angle() -> float:
 
 
 func _physics_process(dt: float) -> void:
+	Prof.begin("car")
 	if freeze:
+		Prof.end("car")
 		return
 	_time += dt
 	var xf := global_transform
@@ -423,6 +425,7 @@ func _physics_process(dt: float) -> void:
 	_handle_impacts()
 	scraping = move_toward(scraping, 0.0, dt * 4.0)
 	_prev_vel = vel
+	Prof.end("car")
 
 
 func _update_gears(sp_t: float, thr: float, dt: float) -> void:
@@ -444,6 +447,12 @@ func _update_gears(sp_t: float, thr: float, dt: float) -> void:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	Prof.begin("integrate")
+	_integrate(state)
+	Prof.end("integrate")
+
+
+func _integrate(state: PhysicsDirectBodyState3D) -> void:
 	for i in state.get_contact_count():
 		var imp: Vector3 = state.get_contact_impulse(i)
 		var j := imp.length()
