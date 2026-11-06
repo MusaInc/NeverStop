@@ -10,7 +10,7 @@ const SHADER := preload("res://src/fx/speed_lines.gdshader")
 
 
 func _ready() -> void:
-	set_anchors_preset(PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_IGNORE
 	var m := ShaderMaterial.new()
 	m.shader = SHADER

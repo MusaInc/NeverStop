@@ -29,14 +29,14 @@ var _toast_t := 0.0
 func setup(p_game: Node) -> void:
 	game = p_game
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	set_anchors_preset(PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_IGNORE
 	_theme = _make_theme()
 	theme = _theme
 	for n in ["title", "garage", "records", "settings", "pause", "results"]:
 		var c := Control.new()
 		c.name = n
-		c.set_anchors_preset(PRESET_FULL_RECT)
+		c.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 		c.mouse_filter = MOUSE_FILTER_IGNORE
 		c.visible = false
 		add_child(c)
@@ -215,7 +215,7 @@ func _label(text: String, size := 18, col := UiStyle.WHITE, weight := "bold") ->
 
 func _margin(c: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	var m := MarginContainer.new()
-	m.set_anchors_preset(PRESET_FULL_RECT)
+	m.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	m.add_theme_constant_override("margin_left", l)
 	m.add_theme_constant_override("margin_top", t)
 	m.add_theme_constant_override("margin_right", r)
@@ -241,7 +241,7 @@ func _shade(c: Control, from_left := true, a := 0.75) -> void:
 	gt.fill_from = Vector2(0, 0) if from_left else Vector2(0, 1)
 	gt.fill_to = Vector2(0.75, 0) if from_left else Vector2(0, 0.2)
 	g.texture = gt
-	g.set_anchors_preset(PRESET_FULL_RECT)
+	g.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	g.stretch_mode = TextureRect.STRETCH_SCALE
 	g.mouse_filter = MOUSE_FILTER_IGNORE
 	c.add_child(g)
@@ -266,10 +266,12 @@ func _build_title() -> void:
 	sp.custom_minimum_size.y = 18
 	v.add_child(sp)
 	var play := _btn("PLAY", func(): game.start_run(), true, 28)
-	play.custom_minimum_size = Vector2(300, 64)
+	play.custom_minimum_size = Vector2(440, 64)
+	play.size_flags_horizontal = SIZE_SHRINK_BEGIN
 	v.add_child(play)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
+	row.size_flags_horizontal = SIZE_SHRINK_BEGIN
 	v.add_child(row)
 	for pair in [["GARAGE", "garage"], ["RECORDS", "records"], ["SETTINGS", "settings"]]:
 		var target: String = pair[1]
@@ -313,10 +315,10 @@ func _build_pause() -> void:
 	var c: Control = screens["pause"]
 	var bg := ColorRect.new()
 	bg.color = Color(0.01, 0.015, 0.02, 0.6)
-	bg.set_anchors_preset(PRESET_FULL_RECT)
+	bg.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	c.add_child(bg)
 	var center := CenterContainer.new()
-	center.set_anchors_preset(PRESET_FULL_RECT)
+	center.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	c.add_child(center)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
@@ -499,6 +501,7 @@ func _build_settings() -> void:
 	head.add_child(_btn("DONE", func(): Settings.save(); show_screen(_back_to), true, 16))
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0, 420)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	v.add_child(scroll)
 	var grid := GridContainer.new()
@@ -562,6 +565,7 @@ func _toggle(grid: GridContainer, name: String, val: bool, cb: Callable) -> void
 	b.button_pressed = val
 	b.text = "ON" if val else "OFF"
 	b.custom_minimum_size = Vector2(110, 44)
+	b.size_flags_horizontal = SIZE_SHRINK_BEGIN
 	b.toggled.connect(func(on): b.text = "ON" if on else "OFF"; cb.call(on))
 	grid.add_child(b)
 
@@ -570,9 +574,10 @@ func _toggle(grid: GridContainer, name: String, val: bool, cb: Callable) -> void
 func _build_garage() -> void:
 	var c: Control = screens["garage"]
 	_garage = GarageView.new()
-	_garage.set_anchors_preset(PRESET_FULL_RECT)
+	_garage.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	_garage.mouse_filter = MOUSE_FILTER_PASS
 	c.add_child(_garage)
+	_garage.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	_shade(c, true, 0.7)
 	_garage_sel = maxi(0, CarCatalog.ORDER.find(game.car_id))
 	var m := _margin(c, 48, 26, 48, 22)

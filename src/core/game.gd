@@ -501,10 +501,36 @@ func recover_player() -> void:
 func _drive_bot(dt: float) -> void:
 	_bot_t -= dt
 	if _bot_t <= 0.0 or (bot.remaining() < 15 and _bot_t < 5.0):
-		_bot_t = 2.0
+		_bot_t = 1.5
 		var near := net.nearest(player.global_position, -player.global_basis.z, 40.0)
 		if not near.is_empty():
-			bot.set_path(net.wander(near["lane"], near["s"], 400.0, rng, 0.3))
+			# Evade like a player would: of a few onward routes, take the one
+			# that ends furthest from the police and stays straightest.
+			var cops: Array = []
+			for u in director.units:
+				if u.alive():
+					cops.append(u.world_pos())
+			var best := PackedVector3Array()
+			var best_s := -INF
+			for k in 5:
+				var path := net.wander(near["lane"], near["s"], 320.0, rng, 0.45)
+				if path.size() < 4:
+					continue
+				var end := path[-1]
+				var sc := 0.0
+				for c in cops:
+					sc += minf((c as Vector3).distance_to(end), 400.0) * 0.01
+					sc -= 4.0 if (c as Vector3).distance_to(path[mini(12, path.size() - 1)]) < 25.0 else 0.0
+				var turn := 0.0
+				for i in range(2, path.size() - 2, 4):
+					turn += absf((path[i] - path[i - 2]).normalized().angle_to(path[i + 2] - path[i]))
+				sc -= turn * 0.6
+				if sc > best_s:
+					best_s = sc
+					best = path
+			if not best.is_empty():
+				bot.set_path(best)
+	bot.skill = 0.95 if state == State.PLAYING else 0.88
 	bot.update(dt, get_world_3d().direct_space_state)
 
 

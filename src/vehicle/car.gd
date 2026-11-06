@@ -495,6 +495,8 @@ func _handle_impacts() -> void:
 	var amount := clampf((dv - 2.0) / 40.0, 0.0, 0.6) / dur
 	if role == "civilian":
 		amount *= 1.6
+	elif role == "police":
+		amount *= 2.2  # (cops crash out spectacularly; the player is the tough one)
 	dmg[side] = minf(1.0, dmg[side] + amount)
 	health = maxf(0.0, health - amount * 0.6)
 	if dv > 9.0 and (side == "left" or side == "right"):

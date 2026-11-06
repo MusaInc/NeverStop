@@ -31,6 +31,7 @@ var cars: Array = []        # [{car, path, i, v, lane, wrecked, t_wreck, offset}
 var _ray := PhysicsRayQueryParameters3D.new()
 var _respawn_t := 0.0
 var enabled := true
+var _refill_t := 0.0
 var jumps: Jumps
 
 
@@ -189,8 +190,13 @@ func _physics_process(dt: float) -> void:
 	var pp := player.global_position
 	_respawn_t -= dt
 	var police: Array = director.unit_markers() if director and director.active else []
+	_refill_t -= dt
 	for c in cars:
 		if not c["active"]:
+			# Parked because no spot was free last time: try again now and then.
+			if _refill_t <= 0.0:
+				_refill_t = 0.25
+				_respawn(c, pp)
 			continue
 		var car: Car = c["car"]
 		if c["wrecked"]:

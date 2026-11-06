@@ -27,7 +27,7 @@ signal radio(text: String)
 
 const SPAWN_MIN := 170.0
 const SPAWN_MAX := 330.0
-const PROMOTE_R := 150.0      # C -> car when within this (and out of view)
+const PROMOTE_R := 190.0      # C -> car when within this (and out of view)
 const DEMOTE_R := 380.0       # car -> C beyond this (out of view)
 const TIER_A_R := 90.0
 const BUST_R := 9.5
@@ -313,7 +313,7 @@ func _new_unit(kind: String, role: String) -> PoliceUnit:
 	u.skill = clampf(rng.randf_range(0.74, 0.92) + heat * 0.01, 0.7, 0.98)
 	u.aggression = clampf(rng.randf_range(0.3, 0.8) + heat * 0.04, 0.0, 1.0)
 	u.flank = rng.randf_range(-2.5, 2.5)
-	u.road_speed = (CarCatalog.police_spec(kind)["top_speed"] as float) * 0.62
+	u.road_speed = (CarCatalog.police_spec(kind)["top_speed"] as float) * 0.8
 	u.tier = PoliceUnit.Tier.C
 	u.spawn_time = time
 	u.state = "intercept" if role == "interceptor" else "respond"
@@ -375,7 +375,8 @@ func _update_unit(u: PoliceUnit, dt: float, space: PhysicsDirectSpaceState3D, pp
 		return
 	if u.car:
 		var c := u.car
-		if c.disabled or c.upside_time > 2.5 or (c.health < 0.08):
+		# Out of the chase: destroyed, on its roof, or beached for good.
+		if c.disabled or c.upside_time > 2.0 or c.health < 0.12 or (c.stuck_time > 6.0 and c.health < 0.6):
 			_wreck(u)
 			return
 		# Awareness: line of sight (or the helicopter) refreshes last-seen.

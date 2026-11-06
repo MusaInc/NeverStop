@@ -66,23 +66,23 @@ func _ready() -> void:
 	stage.add_child(floor)
 	var ring := MeshInstance3D.new()
 	var tm := TorusMesh.new()
-	tm.inner_radius = 4.15
+	tm.inner_radius = 4.22
 	tm.outer_radius = 4.3
 	ring.mesh = tm
 	var rm := StandardMaterial3D.new()
 	rm.albedo_color = UiStyle.AMBER
 	rm.emission_enabled = true
 	rm.emission = UiStyle.AMBER
-	rm.emission_energy_multiplier = 1.5
+	rm.emission_energy_multiplier = 0.6
 	ring.material_override = rm
 	ring.scale = Vector3(1, 0.2, 1)
 	stage.add_child(ring)
 	cam = Camera3D.new()
 	cam.fov = 34.0
 	stage.add_child(cam)
-	cam.position = Vector3(1.2, 1.6, 9.0)
-	cam.look_at(Vector3(1.2, 0.55, 0), Vector3.UP)
-	cam.position.x -= 2.2  # car sits right of centre (the stats are on the left)
+	# The car sits right of centre (the stats are on the left).
+	cam.position = Vector3(-2.6, 1.9, 8.6)
+	cam.look_at(Vector3(-2.6, 0.45, 0), Vector3.UP)
 	cam.current = true
 
 
@@ -111,6 +111,10 @@ func _gui_input(ev: InputEvent) -> void:
 
 
 func _process(dt: float) -> void:
+	if size.x < 8.0 and get_parent() is Control:
+		size = (get_parent() as Control).size
+	if size.x > 8.0 and Vector2i(size) != vp.size:
+		vp.size = Vector2i(size)
 	if car:
 		if not _drag:
 			_spin = move_toward(_spin, 0.35, dt * 0.3)

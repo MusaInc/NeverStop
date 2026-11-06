@@ -195,13 +195,31 @@ func _chase(dt: float) -> void:
 
 
 func _orbit(dt: float) -> void:
+	# The capture shot: a slow elevated orbit round the car (and whoever has
+	# boxed it in), pulled in in front of walls and kept off the ground.
 	var cp := target.global_position
-	_orbit_angle += dt * 0.25
-	var off := Vector3(sin(_orbit_angle), 0.0, cos(_orbit_angle)) * 9.0 + Vector3.UP * 3.2
+	_orbit_angle += dt * 0.22
+	var off := Vector3(sin(_orbit_angle), 0.0, cos(_orbit_angle)) * 11.0 + Vector3.UP * 5.5
 	var want := cp + off
-	global_position = global_position.lerp(want, 1.0 - exp(-2.5 * dt))
-	look_at(cp + Vector3.UP * 0.6, Vector3.UP)
-	cam.fov = lerpf(cam.fov, 50.0, 1.0 - exp(-2.0 * dt))
+	var space := get_world_3d().direct_space_state
+	var from := cp + Vector3.UP * 1.5
+	_query.transform = Transform3D(Basis(), from)
+	_query.motion = want - from
+	_query.collision_mask = 1 | (1 << 2)
+	_query.exclude = [target.get_rid()]
+	var frac := space.cast_motion(_query)
+	_query.collision_mask = 1
+	if frac.size() == 2 and frac[0] < 1.0:
+		want = from + (want - from) * maxf(frac[0] - 0.05, 0.1) + Vector3.UP * 1.5
+	_ray.from = want + Vector3.UP * 4.0
+	_ray.to = want - Vector3.UP * 3.0
+	_ray.exclude = [target.get_rid()]
+	var hit := space.intersect_ray(_ray)
+	if not hit.is_empty():
+		want.y = maxf(want.y, (hit["position"] as Vector3).y + 1.5)
+	global_position = global_position.lerp(want, 1.0 - exp(-3.0 * dt))
+	look_at(cp + Vector3.UP * 0.5, Vector3.UP)
+	cam.fov = lerpf(cam.fov, 52.0, 1.0 - exp(-2.0 * dt))
 
 
 func _fixed(dt: float) -> void:
