@@ -34,7 +34,7 @@ func test_car_settles_on_four_wheels(t) -> void:
 
 
 func test_accelerates_and_tops_out(t) -> void:
-	for id in ["kestrel", "marlin", "halcyon"]:
+	for id in CarCatalog.ORDER:
 		var car := bench.spawn_car(id, Vector3(0, 0, 0))
 		await DriveBench.frames(get_tree(), 30)
 		_drive(car, 1.0, 0.0, 0.0)
@@ -74,7 +74,7 @@ func test_brakes_from_100(t) -> void:
 
 
 func test_full_lock_at_speed_does_not_flip(t) -> void:
-	for id in ["kestrel", "marlin", "warden", "halcyon"]:
+	for id in CarCatalog.ORDER:
 		var car := bench.spawn_car(id)
 		await DriveBench.frames(get_tree(), 30)
 		car.linear_velocity = -car.global_basis.z * 40.0

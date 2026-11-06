@@ -15,9 +15,8 @@ extends Node3D
 ##    the side of the player, never on screen. Count follows the quality
 ##    preset and the player's speed (thinner at high speed on open roads).
 
-const BODIES := [["kestrel", 0.4], ["marlin", 0.3], ["warden", 0.12], ["brute", 0.1], ["vanta", 0.08]]
-const COLORS := [Color(0.8, 0.8, 0.78), Color(0.12, 0.12, 0.13), Color(0.5, 0.06, 0.05), Color(0.14, 0.24, 0.4),
-	Color(0.55, 0.57, 0.6), Color(0.72, 0.62, 0.42), Color(0.2, 0.32, 0.26), Color(0.92, 0.9, 0.86), Color(0.35, 0.2, 0.12)]
+## Models and their share of traffic: CarCatalog.CIVILIANS (compacts, saloons,
+## taxis, SUVs, vans, box trucks, buses).
 const RANGE := 300.0
 const SPAWN_MIN := 90.0
 
@@ -57,16 +56,7 @@ func reset_around(p: Vector3) -> void:
 
 
 func _make() -> Dictionary:
-	var r := rng.randf()
-	var body := "kestrel"
-	for b in BODIES:
-		r -= b[1]
-		if r <= 0.0:
-			body = b[0]
-			break
-	var spec := CarCatalog.spec(body)
-	spec["engine"] *= 0.6
-	spec["paint"] = COLORS[rng.randi() % COLORS.size()]
+	var spec := CarCatalog.civ_spec(CarCatalog.civ_pick(rng), rng)
 	var car := Car.new()
 	car.setup(spec, "civilian")
 	car.name = "Civilian_%d" % cars.size()
@@ -116,7 +106,8 @@ func _respawn(c: Dictionary, around: Vector3, anywhere := false) -> bool:
 		c["lane"] = n["lane"]
 		c["path"] = net.wander(n["lane"], n["s"], 260.0, rng, 0.35)
 		c["i"] = 0.0
-		c["cruise"] = net.lane_speed[n["lane"]] * rng.randf_range(0.95, 1.35)
+		var heavy := float(car.spec["mass"]) > 4000.0
+		c["cruise"] = net.lane_speed[n["lane"]] * (rng.randf_range(0.8, 0.95) if heavy else rng.randf_range(0.95, 1.35))
 		c["v"] = c["cruise"] * 0.8
 		c["wrecked"] = false
 		c["active"] = true
@@ -208,6 +199,8 @@ func _physics_process(dt: float) -> void:
 		var fwd := -car.global_basis.z
 		var gap := _gap_ahead(car, fwd, police)
 		var target: float = c["cruise"]
+		# (gap is bumper to bumper-ish: long vehicles keep their own length clear)
+		gap -= (float(car.spec["size"].z) - 4.5) * 0.5
 		if gap < 30.0:
 			target = minf(target, maxf(0.0, (gap - 7.0) * 0.8))
 		# Sirens behind: slow and pull over.
@@ -248,7 +241,7 @@ func _gap_ahead(car: Car, fwd: Vector3, police: Array) -> float:
 		var oc: Car = o["car"]
 		if oc == car:
 			continue
-		best = minf(best, _ahead(p, fwd, oc.global_position))
+		best = minf(best, _ahead(p, fwd, oc.global_position) - (float(oc.spec["size"].z) - 4.5) * 0.5)
 	best = minf(best, _ahead(p, fwd, player.global_position))
 	for m in police:
 		best = minf(best, _ahead(p, fwd, m[0]))

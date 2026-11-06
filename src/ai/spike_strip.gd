@@ -57,6 +57,10 @@ func _on_body(b: Node) -> void:
 	if _used or b != player:
 		return
 	_used = true
+	if player.spec.get("puncture_proof", false):
+		player.grip_loss = 0.4  # run-flats: a jolt, nothing more
+		spiked.emit()
+		return
 	player.puncture = 1.0
 	player.grip_loss = 1.2
 	spiked.emit()

@@ -36,6 +36,8 @@ const WEATHER_PARAMS := {
 	"fog": {"cloud": 0.6, "rain": 0.0, "fog": 1.0, "storm": 0.0, "dark": 0.2},
 }
 
+const SHADOW_OPACITY := 0.62
+
 var env: Environment
 var sun: DirectionalLight3D
 var sky_mat: ShaderMaterial
@@ -110,7 +112,7 @@ func _ready() -> void:
 	env.glow_hdr_threshold = 1.0
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.07
-	env.adjustment_contrast = 1.1
+	env.adjustment_contrast = 1.03  # (was 1.1: shaded streets went near-black at driving height)
 	env.adjustment_color_correction = grade_lut()
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -268,7 +270,9 @@ func _apply(dt: float, instant: bool) -> void:
 		sky_mat.set_shader_parameter("disc_k", 2.2)
 		sky_mat.set_shader_parameter("sun_tint", Color(0.8, 0.85, 1.0))
 	sun.light_energy *= 1.0 - 0.8 * overcast
-	sun.shadow_opacity = 1.0 - 0.7 * overcast
+	# Softer shadows than CitySwing's: at car height whole streets sit in
+	# building shadow, so they must stay readable (owner feedback 2026-11-06).
+	sun.shadow_opacity = SHADOW_OPACITY * (1.0 - 0.7 * overcast)
 
 	# --- sky colours by sun height, greyed by cloud.
 	var zen := _ramp(el, [[-18.0, Color(0.012, 0.02, 0.05)], [-6.0, Color(0.07, 0.1, 0.25)],
@@ -306,7 +310,7 @@ func _apply(dt: float, instant: bool) -> void:
 		sky_mat.set_shader_parameter("flash", fl)
 
 	# --- ambient, exposure, fog.
-	env.ambient_light_energy = _rampf(el, [[-15.0, 0.5], [-4.0, 0.5], [2.0, 0.5], [20.0, 0.56]]) \
+	env.ambient_light_energy = _rampf(el, [[-15.0, 0.55], [-4.0, 0.55], [2.0, 0.62], [20.0, 0.78]]) \
 		* (1.0 + 0.25 * overcast) + fl * 2.0
 	# The non-sky share: light bounced off sunlit stone (warm-neutral by day,
 	# dusky at sunset, moonlit blue at night).

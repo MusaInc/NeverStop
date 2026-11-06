@@ -1567,7 +1567,7 @@ const KERB_STEP := 4.0     # m: kerb / wall pieces follow the ground in steps th
 ##     on a terrace), cut to the chunk, with kerbs / retaining walls round it;
 ##   * dock basins' quay walls, the sea walls and the shore apron.
 func add_ground(layout: CityLayout, chunk_rect: Rect2) -> void:
-	var asphalt := Color(0.2, 0.21, 0.23)
+	var asphalt := Color(0.235, 0.24, 0.255)
 	var pave := Color(0.58, 0.57, 0.55)
 	var kerb := Color(0.7, 0.69, 0.66)
 	var grass := Color(0.32, 0.45, 0.24)

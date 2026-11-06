@@ -1971,9 +1971,11 @@ func _bridge() -> void:
 	var top := BRIDGE_TOWER_TOP
 	var x_east := 56.0
 	var x_west := FAR_SHORE + 14.0
-	_box(x_west, zc - 10.0, x_east, zc + 10.0, deck - 2.0, deck)
+	# The deck runs on over the west anchorage to meet the approach viaduct
+	# (which starts at x_west - 16), and a little past the east landing.
+	_box(x_west - 16.5, zc - 10.0, x_east + 2.0, zc + 10.0, deck - 2.0, deck)
 	for sz: float in [-1.0, 1.0]:
-		_box(x_west, zc + sz * 10.0, x_east, zc + sz * 8.8, deck - 2.4, deck + 0.4)  # side girders
+		_box(x_west - 16.5, zc + sz * 10.0, x_east, zc + sz * 8.8, deck - 2.4, deck + 0.4)  # side girders
 	for tx: float in BRIDGE_TOWERS:
 		for sz: float in [-1.0, 1.0]:
 			_box(tx - 3.0, zc + sz * 15.0, tx + 3.0, zc + sz * 9.5, -2.0, top)

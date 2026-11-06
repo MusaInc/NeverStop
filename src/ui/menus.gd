@@ -635,7 +635,12 @@ func _garage_refresh() -> void:
 	for k in ["speed", "accel", "handling", "durability"]:
 		_garage_box.add_child(StatBar.make(k.to_upper(), st[k]))
 	var drive: String = {"fwd": "Front-wheel drive", "rwd": "Rear-wheel drive", "awd": "All-wheel drive"}[spec["drive"]]
-	_garage_box.add_child(_label("%s  ·  %d km/h  ·  %d kg" % [drive, int(spec["top_speed"] * 3.6), int(spec["mass"])], 13, UiStyle.DIM, "bold"))
+	_garage_box.add_child(_label("%s  ·  %d km/h  ·  %s kg" % [drive, int(spec["top_speed"] * 3.6), UiStyle.thousands(int(spec["mass"]))], 13, UiStyle.DIM, "bold"))
+	if info.has("perk"):
+		var perk := _label(str(info["perk"]), 14, UiStyle.AMBER, "bold")
+		perk.autowrap_mode = TextServer.AUTOWRAP_WORD
+		perk.custom_minimum_size.x = 360
+		_garage_box.add_child(perk)
 	if not owned:
 		var price := int(info["price"])
 		var buy := _btn("BUY  $" + UiStyle.thousands(price), func():
@@ -666,12 +671,14 @@ func _garage_refresh() -> void:
 	ug.add_theme_constant_override("h_separation", 8)
 	ug.add_theme_constant_override("v_separation", 6)
 	_garage_box.add_child(ug)
-	for k in ["engine", "grip", "armour", "nitro"]:
-		var lvl := int(ups.get(k, 0))
+	var caps := CarCatalog.upgrade_caps(id)
+	for k in CarCatalog.UPGRADE_KEYS:
+		var cap: int = caps[k]
+		var lvl := mini(int(ups.get(k, 0)), cap)
 		var u: Dictionary = CarCatalog.UPGRADES[k]
-		var maxed := lvl >= 3
-		var price := 0 if maxed else int(u["prices"][lvl])
-		var label := "%s  %s" % [u["name"].to_upper(), "●".repeat(lvl) + "○".repeat(3 - lvl)]
+		var maxed := lvl >= cap
+		var price := 0 if maxed else CarCatalog.upgrade_price(id, k, lvl)
+		var label := "%s  %s" % [u["name"].to_upper(), "●".repeat(lvl) + "○".repeat(cap - lvl)]
 		label += "" if maxed else "   $" + UiStyle.thousands(price)
 		var key: String = k
 		var b := _btn(label, func():
@@ -688,8 +695,10 @@ func _garage_refresh() -> void:
 		b.disabled = maxed or SaveData.cash() < price
 		ug.add_child(b)
 	# Paint and wheels.
-	var paints := HBoxContainer.new()
-	paints.add_theme_constant_override("separation", 4)
+	var paints := HFlowContainer.new()
+	paints.add_theme_constant_override("h_separation", 4)
+	paints.add_theme_constant_override("v_separation", 4)
+	paints.custom_minimum_size.x = 370
 	_garage_box.add_child(paints)
 	for pi in CarCatalog.PAINTS.size():
 		var p: Array = CarCatalog.PAINTS[pi]
@@ -723,8 +732,10 @@ func _garage_refresh() -> void:
 			toast(CarCatalog.PAINTS[idx][0])
 			_garage_refresh())
 		paints.add_child(sw)
-	var wheels := HBoxContainer.new()
-	wheels.add_theme_constant_override("separation", 4)
+	var wheels := HFlowContainer.new()
+	wheels.add_theme_constant_override("h_separation", 4)
+	wheels.add_theme_constant_override("v_separation", 4)
+	wheels.custom_minimum_size.x = 370
 	_garage_box.add_child(wheels)
 	for w in CarCatalog.WHEELS:
 		var wid: String = w[0]

@@ -164,7 +164,7 @@ func attach(p_game: Node, p_player: Car, p_director: PursuitDirector) -> void:
 
 func set_player(p: Car) -> void:
 	player = p
-	var kind: String = ENGINE_OF.get(str(p.spec.get("id", "kestrel")), "v6")
+	var kind: String = ENGINE_OF.get(str(p.spec.get("id", "kestrel")), str(p.spec.get("engine_sound", "v6")))
 	if kind != _eng_kind:
 		_eng_kind = kind
 		_eng_lo.stream = _loop("engine_%s_low" % kind)
@@ -295,7 +295,7 @@ func _police_audio() -> void:
 		var e := _police_eng[i]
 		if i < cars.size():
 			var c2: Car = cars[i]
-			var kind: String = ENGINE_OF.get(str(c2.spec["id"]), "v6")
+			var kind: String = ENGINE_OF.get(str(c2.spec["id"]), str(c2.spec.get("engine_sound", "v6")))
 			var want: AudioStream = _loop("engine_%s_low" % kind)
 			if e.stream != want:
 				e.stream = want

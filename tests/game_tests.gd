@@ -35,9 +35,12 @@ func _frames(n: int) -> void:
 
 func _run() -> void:
 	var t0 := Time.get_ticks_msec()
+	var only := str(game.args.get("gametest", "1"))
 	for m in get_method_list():
 		var n: String = m["name"]
 		if not n.begins_with("test_"):
+			continue
+		if only != "1" and not only in n:
 			continue
 		_cur = n
 		_cur_failed = false
@@ -62,6 +65,50 @@ func _start(heat := 1, bot := true) -> void:
 	game.state = game.State.MENU
 	game.start_run()
 	await _frames(5)
+
+
+## Every lane is drivable: a ray down at each lane point (3 m apart) finds
+## road surface at the lane's height. Catches gaps and steps in the deck
+## (the bridge's west anchorage used to sit 2 m below the roadway).
+func test_0_roads_are_continuous() -> void:
+	var net: RoadNet = game.net
+	var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.new()
+	q.collision_mask = Car.RAY_MASK
+	var bad: Array = []
+	var total := 0
+	for li in net.lanes.size():
+		var pts: PackedVector3Array = net.lanes[li]
+		for p in pts:
+			total += 1
+			q.from = p + Vector3.UP * 2.5
+			q.to = p + Vector3.DOWN * 4.0
+			var h := space.intersect_ray(q)
+			var dy: float = (h["position"] as Vector3).y - p.y if not h.is_empty() else -99.0
+			if game.jumps and dy > 0.0:
+				dy -= maxf(0.0, game.jumps.height_at(p) - p.y)
+			if dy < -0.45 or dy > 0.6:
+				bad.append([p, dy])
+				if OS.has_environment("ROAD_DEBUG"):
+					note("lane %d p %s dy %.2f hit %s" % [li, str(p), dy, str(h.get("collider"))])
+	# Cluster for the report.
+	var clusters: Array = []
+	for b in bad:
+		var hit := false
+		for c in clusters:
+			if (c[0] as Vector3).distance_to(b[0]) < 25.0:
+				c[1] += 1
+				c[2] = minf(c[2], b[1])
+				hit = true
+				break
+		if not hit:
+			clusters.append([b[0], 1, b[1]])
+	for c in clusters.slice(0, 30):
+		note("gap at %s: %d points, worst %.2f m" % [str((c[0] as Vector3).round()), c[1], c[2]])
+	note("%d / %d lane points without road under them (%d places)" % [bad.size(), total, clusters.size()])
+	var holes := bad.filter(func(b): return b[1] < 0.0).size()
+	check(holes == 0, "no holes or drops in the roadway (%d)" % holes)
+	check(bad.size() - holes <= total / 2000, "almost no steps up out of the lane surface")
 
 
 func test_1_menu_then_play() -> void:

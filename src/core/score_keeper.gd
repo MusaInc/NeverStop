@@ -65,7 +65,7 @@ func award(label: String, pts: float, extends_chain := true) -> void:
 	score += p
 	if extends_chain:
 		chain = minf(8.0, chain + 0.5) if chain_t > 0.0 else maxf(chain, 1.5)
-		chain_t = CHAIN_WINDOW
+		chain_t = CHAIN_WINDOW + (float(player.spec.get("chain_bonus", 0.0)) if player else 0.0)
 	event.emit(label, p, chain)
 
 
@@ -104,7 +104,7 @@ func _physics_process(dt: float) -> void:
 	elif _drift_run > 0.0:
 		if _drift_run > 0.6:
 			best_drift = maxf(best_drift, _drift_run)
-			award("DRIFT %.1fs" % _drift_run, 120.0 * _drift_run * (1.0 + _drift_run * 0.3))
+			award("DRIFT %.1fs" % _drift_run, 120.0 * _drift_run * (1.0 + _drift_run * 0.3) * _perk("score_drift"))
 		_drift_run = 0.0
 	if player.wheels_on_ground == 0:
 		air_time += dt
@@ -113,16 +113,20 @@ func _physics_process(dt: float) -> void:
 		_fast_run += dt
 		if _fast_run > 3.0:
 			_fast_run = 0.0
-			award("FLAT OUT", 150.0)
+			award("FLAT OUT", 150.0 * _perk("score_speed"))
 	else:
 		_fast_run = 0.0
 	_near_misses()
 	Prof.end("score")
 
 
+func _perk(key: String) -> float:
+	return float(player.spec.get(key, 1.0)) if player else 1.0
+
+
 func on_landed(airtime: float, _impact: float) -> void:
 	if airtime > 0.45 and running:
-		award("AIR %.1fs" % airtime, 250.0 * airtime * airtime + 100.0)
+		award("AIR %.1fs" % airtime, (250.0 * airtime * airtime + 100.0) * _perk("score_air"))
 
 
 func on_player_impact(strength: float, other: Object) -> void:
@@ -167,7 +171,7 @@ func _near_misses() -> void:
 				_close.erase(k)
 				if g < NEAR_MISS_GAP and g > -0.05:
 					near_misses += 1
-					award("NEAR MISS" if g > 0.5 else "RAZOR CLOSE", 180.0 if g > 0.5 else 320.0)
+					award("NEAR MISS" if g > 0.5 else "RAZOR CLOSE", (180.0 if g > 0.5 else 320.0) * _perk("score_near"))
 			continue
 		var rv := (player.linear_velocity - o.linear_velocity).length()
 		if rv < NEAR_MISS_SPEED:

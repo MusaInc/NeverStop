@@ -98,6 +98,12 @@ func show_car(spec: Dictionary) -> void:
 	visual.setup(car)
 	for i in 4:
 		car.wheel_comp_visual[i] = 0.08
+	# Frame big trucks as well as hatchbacks.
+	var sz: Vector3 = spec["size"]
+	var k := maxf(1.0, maxf(sz.z / 4.6, (sz.y + float(spec["ride"])) / 1.45))
+	var target := Vector3(-2.6 * k, 0.45 * k, 0)
+	cam.position = target + Vector3(0, 1.45, 8.6) * k
+	cam.look_at(target, Vector3.UP)
 	car.position = Vector3.ZERO
 	car.rotation.y = _yaw
 

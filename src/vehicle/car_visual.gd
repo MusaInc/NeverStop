@@ -71,8 +71,33 @@ static func shared_mat(name: String) -> Material:
 			m.metallic = 0.8
 			m.roughness = 0.35
 		"tyre":
-			m.albedo_color = Color(0.035, 0.035, 0.035)
+			m.albedo_color = Color(0.045, 0.045, 0.045)
+			m.roughness = 0.88
+		"seam":
+			m.albedo_color = Color(0.01, 0.01, 0.012)
 			m.roughness = 0.9
+		"carbon":
+			m.albedo_color = Color(0.05, 0.05, 0.056)
+			m.roughness = 0.28
+			m.metallic = 0.35
+			m.clearcoat_enabled = true
+			m.clearcoat = 0.5
+		"cladding":
+			m.albedo_color = Color(0.075, 0.075, 0.08)
+			m.roughness = 0.85
+		"bed":
+			m.albedo_color = Color(0.05, 0.05, 0.05)
+			m.roughness = 0.95
+		"lamp_housing":
+			m.albedo_color = Color(0.02, 0.02, 0.025)
+			m.roughness = 0.12
+			m.metallic = 0.7
+		"lamp_amber", "sign":
+			m.albedo_color = Color(0.95, 0.5, 0.06) if name == "lamp_amber" else Color(1.0, 0.86, 0.35)
+			m.emission_enabled = true
+			m.emission = m.albedo_color
+			m.emission_energy_multiplier = 0.6 if name == "lamp_amber" else 1.2
+			m.roughness = 0.25
 		"plate":
 			m.albedo_color = Color(0.9, 0.88, 0.78)
 			m.roughness = 0.6

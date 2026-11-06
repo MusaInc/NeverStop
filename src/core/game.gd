@@ -13,6 +13,7 @@ extends Node3D
 ##   --quit-after=<s>       quit after s seconds (benchmarks)
 ##   --time=<h> --weather=<w> --quality=0|1|2 --perf --touch --menu=<screen>
 ##   --save=<path>          scratch save file (never the player's)
+##   --at=<x,z>             spawn on the lane nearest this point (captures)
 
 enum State { MENU, PLAYING, PAUSED, BUSTED, GARAGE }
 
@@ -181,6 +182,14 @@ func _ready() -> void:
 		menus = menus_script.new()
 		ui.add_child(menus)
 		menus.setup(self)
+	if args.has("lineup"):
+		start_run()
+		var lu: Node = load("res://tools/lineup.gd").new()
+		lu.game = self
+		lu.ids = str(args["lineup"]).split(",")
+		lu.out_dir = str(args.get("lineup-out", "/tmp"))
+		add_child(lu)
+		return
 	if args.has("gametest"):
 		var gt: Node = load("res://tests/game_tests.gd").new()
 		gt.game = self
@@ -198,6 +207,17 @@ func spawn_point() -> Transform3D:
 	var spot_id: String = args.get("start", SaveData.data.get("start", "downtown"))
 	var spot: Dictionary = Progression.STARTS.get(spot_id, Progression.STARTS["downtown"])
 	var c: Vector3 = spot["at"]
+	if args.has("at"):  # --at=x,z[,yaw°]: exact spot for captures/tests
+		var xs := str(args["at"]).split(",")
+		var q := Vector3(float(xs[0]), 0.0, float(xs[1]))
+		var hd := Vector3.ZERO
+		if xs.size() > 2:
+			var yaw := deg_to_rad(float(xs[2]))
+			hd = Vector3(sin(yaw), 0.0, -cos(yaw))
+		var n0 := net.nearest(q, hd, 60.0, -1, true)
+		if not n0.is_empty():
+			var d0 := net.lane_dir(n0["lane"], n0["s"])
+			return Transform3D(Basis.looking_at(d0, Vector3.UP), net.lane_point(n0["lane"], n0["s"]) + Vector3.UP * 0.3)
 	var best := Transform3D(Basis(), Vector3(560, 25, -170))
 	var best_score := -INF
 	for attempt in 60:

@@ -191,6 +191,12 @@ func _physics_process(dt: float) -> void:
 	var planar := Vector2(forward_speed, lat_speed)
 	drift_angle = atan2(lat_speed, absf(forward_speed)) if planar.length() > 4.0 else 0.0
 
+	# Perk: some cars patch themselves up when they're left alone for a bit.
+	var rep: float = spec.get("repair", 0.0)
+	if rep > 0.0 and not disabled and _time - last_impact_time > 4.0 and health < 1.0:
+		health = minf(1.0, health + rep * dt)
+		for k in dmg:
+			dmg[k] = maxf(0.0, dmg[k] - rep * dt)
 	# --- controls with damage ---
 	var power_scale: float = 1.0 - 0.45 * maxf(dmg["front"], dmg["rear"]) - 0.25 * (1.0 - health)
 	var thr := 0.0 if disabled else throttle
@@ -217,7 +223,7 @@ func _physics_process(dt: float) -> void:
 		nitro_amount = maxf(0.0, nitro_amount - dt / spec.get("nitro_time", 4.0))
 		top *= 1.18
 	elif not nitro:
-		nitro_amount = minf(1.0, nitro_amount + dt * 0.02)
+		nitro_amount = minf(1.0, nitro_amount + dt * float(spec.get("nitro_regen", 0.02)))
 
 	# Engine force curve: strong low down, tapering to zero at top speed.
 	var sp_t := clampf(absf(forward_speed) / maxf(top, 1.0), 0.0, 1.2)
@@ -493,6 +499,9 @@ func _handle_impacts() -> void:
 		side = "front" if local.z < 0.0 else "rear"
 	var dur: float = spec.get("durability", 1.0)
 	var amount := clampf((dv - 2.0) / 40.0, 0.0, 0.6) / dur
+	# Heavy rammers (trucks, the armoured 4x4) hurt what they hit.
+	if other is Car:
+		amount *= float((other as Car).spec.get("ram", 1.0))
 	if role == "civilian":
 		amount *= 1.6
 	elif role == "police":
