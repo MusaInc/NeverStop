@@ -1,4 +1,22 @@
-# Status: 2026-11-06 (first full build)
+# Status: 2026-11-06 (0.2.0)
+
+## 0.2.0 (2026-11-06, later): vehicles, lighting, bridge
+
+- **Cars rebuilt** (`tools/blender/build_vehicles.py` v2): section-lofted bodies with hard creases, lamps/grilles/vents/
+  seams/livery ray-projected onto the surface, wings, exhausts, bull bars, cargo boxes. Review renders:
+  `tools/lineup.sh "<ids>" <name>` (real game lighting on the bridge deck).
+- **Ten player cars**, four new: Scout (rally hatch), Goliath (lifted pickup), Mammoth (7 t cab-over truck), Stiletto
+  (wedge hypercar). Each has a perk that really changes play (ram damage, run-flat tyres, self-repair, score
+  multipliers, longer combo window, faster nitro) and its own upgrade limits (1–5 levels per upgrade, per-car pricing).
+  Physics sizes come from the models (`assets/vehicles/body_dims.gd`, generated).
+  Measured on the bench: 0–100 km/h from 2.8 s (Stiletto) to 7.1 s (Mammoth); no car rolls at full lock at 144 km/h.
+- **Civilian traffic** has its own models: compacts, saloons, taxis, SUVs, vans, box trucks, buses (length-aware gaps).
+- **Police** rebuilt with proper liveries (patrol white doors, interceptor chequer + stripes, heavy battenburg).
+- **Lighting**: sun shadow opacity 0.62, more ambient fill, contrast 1.03, lighter asphalt: shaded streets stay readable.
+- **Road gaps**: the bridge deck stopped 16 m short of the approach viaduct (a 2 m drop onto the west anchorage that
+  trapped cars). Fixed, and `game.test_0_roads_are_continuous` now ray-casts all ~47,000 lane points: 0 holes; 4 points
+  with a 0.64 m step where the island ramp meets its roundabout (cosmetic for kinematic civilians; still listed).
+- Not checked by a person yet: how the new cars feel to drive on a phone, and whether the heavy trucks are fun.
 
 ## Working and tested
 - **Standalone project**, city copied from CitySwing (CitySwing untouched).

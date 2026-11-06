@@ -1,4 +1,4 @@
-# Builds City Swing for iPhone on a GitHub-hosted Mac and uploads it to
+# Builds NEVER STOP for iPhone on a GitHub-hosted Mac and uploads it to
 # TestFlight. Run it from the Actions tab (Run workflow) – it never runs on
 # its own. See docs/IOS_BUILD.md ("TestFlight without a Mac").
 #
@@ -7,7 +7,7 @@
 #   ASC_KEY_ID            App Store Connect API key ID (role: App Manager or Admin)
 #   ASC_ISSUER_ID         its issuer ID
 #   ASC_KEY_P8            the .p8 private key file contents
-# The app record (bundle ID com.musastudios.cityswing) must exist in App
+# The app record (bundle ID com.musastudios.neverstop) must exist in App
 # Store Connect first: My Apps → + → New App.
 name: TestFlight
 
@@ -16,7 +16,7 @@ on:
     inputs:
       version:
         description: "Marketing version (CFBundleShortVersionString)"
-        default: "0.1.0"
+        default: "0.2.0"
       fix_build:
         description: "Only make an existing build testable (build number, e.g. 33) – skips building"
         default: ""
@@ -71,8 +71,8 @@ jobs:
           sed -i '' "s/^application\/version=.*/application\/version=\"$BUILD\"/" export_presets.cfg
           mkdir -p build/ios
           "$GODOT" --headless --import >/dev/null 2>&1 || true
-          "$GODOT" --headless --export-release "iOS" build/ios/CitySwing.ipa
-          test -d build/ios/CitySwing.xcodeproj
+          "$GODOT" --headless --export-release "iOS" build/ios/NeverStop.ipa
+          test -d build/ios/NeverStop.xcodeproj
 
       - name: App Store Connect API key
         env:
@@ -97,14 +97,28 @@ jobs:
           now = int(time.time())
           token = jwt.encode({"iss": os.environ["ISSUER"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
                              key, algorithm="ES256", headers={"kid": os.environ["KEY_ID"], "typ": "JWT"})
-          req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.musastudios.cityswing",
+          req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.musastudios.neverstop",
                                        headers={"Authorization": f"Bearer {token}"})
           try:
               apps = json.load(urllib.request.urlopen(req))["data"]
           except urllib.error.HTTPError as e:
               sys.exit(f"App Store Connect API refused the key: HTTP {e.code} {e.read().decode()[:300]}")
           if not apps:
-              sys.exit("No App Store Connect app for com.musastudios.cityswing – create it: My Apps → + → New App.")
+              # The bundle ID can be registered through the API; the app record itself cannot.
+              req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/bundleIds?filter[identifier]=com.musastudios.neverstop",
+                                           headers={"Authorization": f"Bearer {token}"})
+              ids = [b for b in json.load(urllib.request.urlopen(req))["data"] if b["attributes"]["identifier"] == "com.musastudios.neverstop"]
+              if not ids:
+                  body = {"data": {"type": "bundleIds", "attributes": {"identifier": "com.musastudios.neverstop", "name": "NEVER STOP", "platform": "IOS"}}}
+                  req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/bundleIds", method="POST", data=json.dumps(body).encode(),
+                                               headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+                  try:
+                      urllib.request.urlopen(req)
+                      print("Registered bundle ID com.musastudios.neverstop")
+                  except urllib.error.HTTPError as e:
+                      print("Bundle ID registration:", e.code, e.read().decode()[:300])
+              sys.exit("No App Store Connect app for com.musastudios.neverstop yet – create it: My Apps → + → New App "
+                       "(iOS, name NEVER STOP, bundle ID com.musastudios.neverstop, SKU neverstop), then re-run.")
           print("App record:", apps[0]["id"], apps[0]["attributes"]["name"])
           # TestFlight treats the highest marketing version as the current one:
           # a build with a LOWER version than one already uploaded is never
@@ -130,9 +144,9 @@ jobs:
         env:
           TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcodebuild -project build/ios/CitySwing.xcodeproj -scheme CitySwing \
+          xcodebuild -project build/ios/NeverStop.xcodeproj -scheme NeverStop \
             -configuration Release -destination "generic/platform=iOS" \
-            -archivePath build/CitySwing.xcarchive archive \
+            -archivePath build/NeverStop.xcarchive archive \
             DEVELOPMENT_TEAM="$TEAM" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" | tail -40
 
@@ -154,7 +168,7 @@ jobs:
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict></plist>
           PLIST
-          xcodebuild -exportArchive -archivePath build/CitySwing.xcarchive \
+          xcodebuild -exportArchive -archivePath build/NeverStop.xcarchive \
             -exportOptionsPlist ExportOptions.plist -exportPath build/upload \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/private_keys/AuthKey_${KEY_ID}.p8" \
@@ -179,7 +193,7 @@ jobs:
               token = jwt.encode({"iss": os.environ["ISSUER"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
                                  key, algorithm="ES256", headers={"kid": os.environ["KEY_ID"], "typ": "JWT"})
               return json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})))
-          app = get("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.musastudios.cityswing")["data"][0]["id"]
+          app = get("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.musastudios.neverstop")["data"][0]["id"]
           build = os.environ["BUILD"]
           state = "NOT FOUND"
           for i in range(76):  # ~38 min
@@ -226,7 +240,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f"{method} {path}: HTTP {e.code} {e.read().decode()[:400]}")
                   return None
-          app = call("/v1/apps?filter[bundleId]=com.musastudios.cityswing")["data"][0]["id"]
+          app = call("/v1/apps?filter[bundleId]=com.musastudios.neverstop")["data"][0]["id"]
           builds = call(f"/v1/builds?filter[app]={app}&filter[version]={os.environ['BUILD']}&include=preReleaseVersion")
           if not builds or not builds["data"]:
               sys.exit(f"build {os.environ['BUILD']} not found")
@@ -238,6 +252,26 @@ jobs:
                         {"data": {"type": "builds", "id": bid, "attributes": {"usesNonExemptEncryption": False}}})
               print("export compliance answered:", "yes" if ok is not None else "FAILED")
           groups = call(f"/v1/apps/{app}/betaGroups?limit=50")["data"]
+          if not any(g["attributes"]["isInternalGroup"] for g in groups):
+              # New app: an internal group with the same testers as the studio's other app.
+              other = call("/v1/apps?filter[bundleId]=com.musastudios.cityswing")
+              emails = []
+              if other and other["data"]:
+                  for g in call(f"/v1/apps/{other['data'][0]['id']}/betaGroups?limit=50")["data"]:
+                      if g["attributes"]["isInternalGroup"]:
+                          for t in call(f"/v1/betaGroups/{g['id']}/betaTesters?limit=50")["data"]:
+                              emails.append((t["id"], t["attributes"].get("email")))
+              ng = call("/v1/betaGroups", "POST", {"data": {"type": "betaGroups",
+                        "attributes": {"name": "Musa Team", "isInternalGroup": True, "hasAccessToAllBuilds": True},
+                        "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
+              if ng:
+                  gid = ng["data"]["id"]
+                  print("created internal group 'Musa Team'")
+                  if emails:
+                      r = call(f"/v1/betaGroups/{gid}/relationships/betaTesters", "POST",
+                               {"data": [{"type": "betaTesters", "id": tid} for tid, _ in emails]})
+                      print(f"  added {len(emails)} tester(s):", "yes" if r is not None else "FAILED")
+              groups = call(f"/v1/apps/{app}/betaGroups?limit=50")["data"]
           for g in groups:
               ga = g["attributes"]
               print(f"group '{ga['name']}': internal={ga['isInternalGroup']} autoDistribute={ga.get('hasAccessToAllBuilds')}")

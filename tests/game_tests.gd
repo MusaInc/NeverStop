@@ -225,6 +225,16 @@ func test_8_street_furniture_breaks() -> void:
 	for cell in game.props._grid.values():
 		for it in cell:
 			if it[0] == "streetlight" and (it[1] as Transform3D).origin.distance_to(game.player.global_position) < 300.0:
+				var p: Vector3 = (it[1] as Transform3D).origin
+				if game.world.broken.has(it[3]) or (it[4] as CityWorld).broken.has(it[3]):
+					continue
+				# Nothing parked or wrecked in the way (earlier tests leave cars around).
+				var clear := true
+				for c in game.civilians.active_cars():
+					if (c as Car).global_position.distance_to(p + Vector3(0, 0, 3)) < 8.0:
+						clear = false
+				if not clear:
+					continue
 				item = it
 				break
 		if not item.is_empty():
@@ -235,6 +245,8 @@ func test_8_street_furniture_breaks() -> void:
 	var at: Vector3 = (item[1] as Transform3D).origin
 	game.player.place(Transform3D(Basis(), at + Vector3(0, 0.5, 6.0)), Vector3(0, 0, -15.0))
 	await _frames(40)
+	note("streetlight at %s, car now at %s (%.0f km/h), health %.2f" % [str(at.round()), str(game.player.global_position.round()),
+		game.player.speed * 3.6, game.player.health])
 	check(game.world.broken.has(item[3]) or (item[4] as CityWorld).broken.has(item[3]), "driving through a streetlight knocks it down")
 
 
