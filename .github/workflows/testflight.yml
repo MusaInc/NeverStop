@@ -1,0 +1,286 @@
+# Builds City Swing for iPhone on a GitHub-hosted Mac and uploads it to
+# TestFlight. Run it from the Actions tab (Run workflow) – it never runs on
+# its own. See docs/IOS_BUILD.md ("TestFlight without a Mac").
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   APPLE_TEAM_ID         10-character Apple Developer team ID
+#   ASC_KEY_ID            App Store Connect API key ID (role: App Manager or Admin)
+#   ASC_ISSUER_ID         its issuer ID
+#   ASC_KEY_P8            the .p8 private key file contents
+# The app record (bundle ID com.musastudios.cityswing) must exist in App
+# Store Connect first: My Apps → + → New App.
+name: TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Marketing version (CFBundleShortVersionString)"
+        default: "0.1.0"
+      fix_build:
+        description: "Only make an existing build testable (build number, e.g. 33) – skips building"
+        default: ""
+      runner:
+        description: "macOS runner image (macos-15-intel when arm64 runners are out of capacity)"
+        default: "macos-15"
+
+env:
+  GODOT_VERSION: "4.5.1"
+
+defaults:
+  run:
+    shell: bash -eo pipefail {0}  # a failing xcodebuild must fail the step, even piped into tail
+
+jobs:
+  testflight:
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26 (App Store Connect rejects builds from older SDKs)
+        if: inputs.fix_build == ''
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          test -n "$xcode"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install Godot and export templates
+        if: inputs.fix_build == ''
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q godot.zip
+          dest="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest"
+          unzip -q templates.tpz -d tpl
+          mv tpl/templates/* "$dest/"
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+
+      - name: Export the Xcode project
+        if: inputs.fix_build == ''
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          sed -i '' "s/^application\/app_store_team_id=.*/application\/app_store_team_id=\"$TEAM\"/" export_presets.cfg
+          sed -i '' "s/^application\/short_version=.*/application\/short_version=\"$VERSION\"/" export_presets.cfg
+          sed -i '' "s/^application\/version=.*/application\/version=\"$BUILD\"/" export_presets.cfg
+          mkdir -p build/ios
+          "$GODOT" --headless --import >/dev/null 2>&1 || true
+          "$GODOT" --headless --export-release "iOS" build/ios/CitySwing.ipa
+          test -d build/ios/CitySwing.xcodeproj
+
+      - name: App Store Connect API key
+        env:
+          P8: ${{ secrets.ASC_KEY_P8 }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$P8" > "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+
+      - name: Check the App Store Connect app record
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          VERSION: ${{ inputs.version }}
+          FIX_BUILD: ${{ inputs.fix_build }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request, jwt
+          key = open(os.path.expanduser(f"~/private_keys/AuthKey_{os.environ['KEY_ID']}.p8")).read()
+          now = int(time.time())
+          token = jwt.encode({"iss": os.environ["ISSUER"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+                             key, algorithm="ES256", headers={"kid": os.environ["KEY_ID"], "typ": "JWT"})
+          req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.musastudios.cityswing",
+                                       headers={"Authorization": f"Bearer {token}"})
+          try:
+              apps = json.load(urllib.request.urlopen(req))["data"]
+          except urllib.error.HTTPError as e:
+              sys.exit(f"App Store Connect API refused the key: HTTP {e.code} {e.read().decode()[:300]}")
+          if not apps:
+              sys.exit("No App Store Connect app for com.musastudios.cityswing – create it: My Apps → + → New App.")
+          print("App record:", apps[0]["id"], apps[0]["attributes"]["name"])
+          # TestFlight treats the highest marketing version as the current one:
+          # a build with a LOWER version than one already uploaded is never
+          # offered to testers as an update (and sends no email).
+          if not os.environ.get("FIX_BUILD"):
+              req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/preReleaseVersions"
+                                           f"?filter[app]={apps[0]['id']}&limit=200&fields[preReleaseVersions]=version",
+                                           headers={"Authorization": f"Bearer {token}"})
+              seen = [v["attributes"]["version"] for v in json.load(urllib.request.urlopen(req))["data"]]
+              key_of = lambda v: tuple(int(x) for x in v.split("."))
+              top = max(seen, key=key_of) if seen else "0"
+              print("Highest version already on TestFlight:", top)
+              if key_of(os.environ["VERSION"]) < key_of(top):
+                  sys.exit(f"Version {os.environ['VERSION']} is lower than {top} already on TestFlight – testers would never get it. Use a higher version.")
+          PY
+
+      - name: Archive (unsigned; the export step signs in the cloud)
+        if: inputs.fix_build == ''
+        # Signing here made CI create a new "Apple Development" certificate on
+        # every fresh runner until the account hit Apple's certificate limit.
+        # The archive is built unsigned; -exportArchive signs it with the
+        # cloud-managed distribution certificate (needs an Admin API key).
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcodebuild -project build/ios/CitySwing.xcodeproj -scheme CitySwing \
+            -configuration Release -destination "generic/platform=iOS" \
+            -archivePath build/CitySwing.xcarchive archive \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" | tail -40
+
+      - name: Upload to TestFlight
+        if: inputs.fix_build == ''
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          cat > ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/CitySwing.xcarchive \
+            -exportOptionsPlist ExportOptions.plist -exportPath build/upload \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/private_keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" | tail -40
+          echo "Uploaded build ${{ github.run_number }} – it appears in App Store Connect → TestFlight after processing (5–30 min)."
+
+      - name: Wait for App Store Connect processing
+        if: inputs.fix_build == ''
+        # Polls the uploaded build until Apple finishes processing it, so the
+        # run reports the real TestFlight state (VALID / INVALID / FAILED).
+        timeout-minutes: 40
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request, jwt
+          key = open(os.path.expanduser(f"~/private_keys/AuthKey_{os.environ['KEY_ID']}.p8")).read()
+          def get(url):
+              now = int(time.time())
+              token = jwt.encode({"iss": os.environ["ISSUER"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+                                 key, algorithm="ES256", headers={"kid": os.environ["KEY_ID"], "typ": "JWT"})
+              return json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})))
+          app = get("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.musastudios.cityswing")["data"][0]["id"]
+          build = os.environ["BUILD"]
+          state = "NOT FOUND"
+          for i in range(76):  # ~38 min
+              data = get(f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app}&filter[version]={build}"
+                         "&fields[builds]=version,processingState,uploadedDate,expirationDate")["data"]
+              if data:
+                  a = data[0]["attributes"]
+                  state = a["processingState"]
+                  print(f"build {a['version']}: {state} (uploaded {a['uploadedDate']})", flush=True)
+                  if state != "PROCESSING":
+                      break
+              else:
+                  print(f"build {build}: not visible yet", flush=True)
+              time.sleep(30)
+          print("FINAL_STATE", state)
+          sys.exit(0 if state == "VALID" else 1)
+          PY
+
+      - name: Make the build testable in TestFlight
+        # Answers export compliance (the game has no networking or crypto) and
+        # adds the build to every internal tester group, then prints what
+        # TestFlight reports for it. Without the compliance answer the build
+        # sits in "Missing Compliance" and testers cannot install it.
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD: ${{ inputs.fix_build || github.run_number }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request, jwt
+          key = open(os.path.expanduser(f"~/private_keys/AuthKey_{os.environ['KEY_ID']}.p8")).read()
+          API = "https://api.appstoreconnect.apple.com"
+          def call(path, method="GET", body=None):
+              now = int(time.time())
+              token = jwt.encode({"iss": os.environ["ISSUER"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+                                 key, algorithm="ES256", headers={"kid": os.environ["KEY_ID"], "typ": "JWT"})
+              req = urllib.request.Request(API + path, method=method, data=json.dumps(body).encode() if body else None,
+                                           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      raw = r.read()
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  print(f"{method} {path}: HTTP {e.code} {e.read().decode()[:400]}")
+                  return None
+          app = call("/v1/apps?filter[bundleId]=com.musastudios.cityswing")["data"][0]["id"]
+          builds = call(f"/v1/builds?filter[app]={app}&filter[version]={os.environ['BUILD']}&include=preReleaseVersion")
+          if not builds or not builds["data"]:
+              sys.exit(f"build {os.environ['BUILD']} not found")
+          b = builds["data"][0]; bid = b["id"]; a = b["attributes"]
+          print(f"build {a['version']}: processing={a['processingState']} expired={a['expired']} "
+                f"usesNonExemptEncryption={a.get('usesNonExemptEncryption')} expires={a['expirationDate']}")
+          if a.get("usesNonExemptEncryption") is None:
+              ok = call(f"/v1/builds/{bid}", "PATCH",
+                        {"data": {"type": "builds", "id": bid, "attributes": {"usesNonExemptEncryption": False}}})
+              print("export compliance answered:", "yes" if ok is not None else "FAILED")
+          groups = call(f"/v1/apps/{app}/betaGroups?limit=50")["data"]
+          for g in groups:
+              ga = g["attributes"]
+              print(f"group '{ga['name']}': internal={ga['isInternalGroup']} autoDistribute={ga.get('hasAccessToAllBuilds')}")
+              if ga["isInternalGroup"] and not ga.get("hasAccessToAllBuilds"):
+                  r = call(f"/v1/betaGroups/{g['id']}/relationships/builds", "POST", {"data": [{"type": "builds", "id": bid}]})
+                  print("  added build to group:", "yes" if r is not None else "FAILED")
+              testers = call(f"/v1/betaGroups/{g['id']}/betaTesters?limit=50")
+              print(f"  testers: {len(testers['data']) if testers else '?'}")
+              for t in (testers or {}).get("data", []):
+                  ta = t["attributes"]; em = ta.get("email") or ""
+                  masked = em[:3] + "***" + em[em.find("@"):] if "@" in em else "?"
+                  print(f"  tester {masked}: state={ta.get('state')} inviteType={ta.get('inviteType')}")
+          a2 = call(f"/v1/builds/{bid}?fields[builds]=minOsVersion,buildAudienceType,iconAssetToken")
+          if a2:
+              x = a2["data"]["attributes"]
+              print(f"build minOsVersion={x.get('minOsVersion')} audience={x.get('buildAudienceType')}")
+          pre = call(f"/v1/builds/{bid}/preReleaseVersion")
+          if pre:
+              print("platform", pre["data"]["attributes"].get("platform"), "version", pre["data"]["attributes"].get("version"))
+          newer = call(f"/v1/builds?filter[app]={app}&sort=-uploadedDate&limit=3&fields[builds]=version,processingState,expired")
+          for n in (newer or {}).get("data", []):
+              print("recent build", n["attributes"])
+          if not groups:
+              print("No tester groups exist – create an internal group in TestFlight and add yourself.")
+          time.sleep(20)
+          d = call(f"/v1/builds/{bid}/buildBetaDetail")
+          if d:
+              da = d["data"]["attributes"]
+              print("INTERNAL_STATE", da.get("internalBuildState"), "EXTERNAL_STATE", da.get("externalBuildState"),
+                    "AUTO_NOTIFY", da.get("autoNotifyEnabled"))
+              if da.get("autoNotifyEnabled") is False:
+                  ok = call(f"/v1/buildBetaDetails/{d['data']['id']}", "PATCH",
+                            {"data": {"type": "buildBetaDetails", "id": d["data"]["id"], "attributes": {"autoNotifyEnabled": True}}})
+                  print("auto-notify turned on:", "yes" if ok is not None else "FAILED")
+          for g in groups:
+              gb = call(f"/v1/betaGroups/{g['id']}/builds?limit=5&fields[builds]=version")
+              print(f"group '{g['attributes']['name']}' builds:", [x["attributes"]["version"] for x in (gb or {}).get("data", [])])
+          # Emails every tester who can see this build ("a new build is ready to test").
+          n = call("/v1/buildBetaNotifications", "POST",
+                   {"data": {"type": "buildBetaNotifications", "relationships": {"build": {"data": {"type": "builds", "id": bid}}}}})
+          print("TESTER_EMAIL_SENT", "yes" if n is not None else "no")
+          PY
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$HOME/private_keys"

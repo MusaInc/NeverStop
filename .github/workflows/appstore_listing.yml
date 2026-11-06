@@ -1,0 +1,36 @@
+# Fills in the App Store listing for a version as a DRAFT (text, categories,
+# review notes, build, screenshots) from store/. Never submits for review.
+# Price, App Privacy, age rating, review contact phone and Submit stay manual.
+name: App Store listing
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "App Store version (e.g. 1.0.0)"
+        default: "1.0.0"
+      build:
+        description: "Build number to attach (optional, must be processed)"
+        default: ""
+      screenshots:
+        description: "Upload store/screenshots (replaces the sets)"
+        type: boolean
+        default: true
+
+jobs:
+  listing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update the draft listing
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          KEY: ${{ secrets.ASC_KEY_P8 }}
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build }}
+          SHOTS: ${{ inputs.screenshots && '1' || '0' }}
+        run: |
+          python3 -m pip install --quiet pyjwt cryptography
+          python3 tools/appstore/listing.py

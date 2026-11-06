@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<!--
+  City Swing billboard atlas: every in-world advert, laid out on one page and
+  screenshotted by tools/ads/render.mjs into assets/ads/ads_atlas.png.
+  Fictional brands only (the City Swing universe). Two formats per brand:
+  wide 768x384 and tall 384x768, plus two 3072x96 tickers.
+  ?mask renders the motion mask instead: white where the shader animates
+  (.fx regions), black elsewhere - it becomes the atlas alpha channel.
+  The layout (cell rects, fx kind + region, accent colour) is exported as
+  window.ATLAS_META for assets/ads/ads_meta.json.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family: Outfit; font-weight: 900; src: url("../../assets/fonts/outfit_black.ttf"); }
+@font-face { font-family: Outfit; font-weight: 700; src: url("../../assets/fonts/outfit_bold.ttf"); }
+@font-face { font-family: Outfit; font-weight: 600; src: url("../../assets/fonts/outfit_semibold.ttf"); }
+@font-face { font-family: Narrow; font-weight: 700; font-style: italic; src: url("/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-BoldOblique.otf"); }
+@font-face { font-family: Narrow; font-weight: 700; src: url("/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Bold.otf"); }
+@font-face { font-family: Narrow; font-weight: 400; src: url("/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Regular.otf"); }
+@font-face { font-family: Geo; font-weight: 600; src: url("/usr/share/fonts/opentype/urw-base35/URWGothic-Demi.otf"); }
+@font-face { font-family: Geo; font-weight: 400; src: url("/usr/share/fonts/opentype/urw-base35/URWGothic-Book.otf"); }
+@font-face { font-family: Didone; font-weight: 400; src: url("/usr/share/fonts/opentype/urw-base35/C059-Roman.otf"); }
+@font-face { font-family: Didone; font-weight: 400; font-style: italic; src: url("/usr/share/fonts/opentype/urw-base35/C059-Italic.otf"); }
+@font-face { font-family: Didone; font-weight: 700; src: url("/usr/share/fonts/opentype/urw-base35/C059-Bold.otf"); }
+@font-face { font-family: Pala; font-weight: 400; src: url("/usr/share/fonts/opentype/urw-base35/P052-Roman.otf"); }
+@font-face { font-family: Pala; font-weight: 400; font-style: italic; src: url("/usr/share/fonts/opentype/urw-base35/P052-Italic.otf"); }
+html, body { margin: 0; padding: 0; background: #000; }
+body { width: 3072px; height: 2880px; position: relative; overflow: hidden; }
+.cell { position: absolute; overflow: hidden; }
+.cell * { position: absolute; box-sizing: border-box; }
+.fx { display: none; }
+body.mask .cell { background: #000 !important; }
+body.mask .cell > *:not(.fx) { visibility: hidden; }
+body.mask .fx { display: block; visibility: visible; background: #fff; }
+.t { white-space: nowrap; line-height: 1; }
+svg { overflow: visible; }
+</style>
+</head>
+<body>
+<script>
+// ---------------------------------------------------------------- brands
+// Each: id, accent (hex), fx (kind), wide(), tall() -> inner HTML of a cell.
+// FX kinds (ad_screen.gdshader): sweep, eq, streaks, pulse, hand, none,
+// bubbles, orbit. A cell's .fx element marks where its fx plays (mask) and
+// its rect is exported (hand/orbit use it as the dial / ring).
+const SHOE = `<svg viewBox="0 0 320 130" width="100%" height="100%"><defs>
+  <linearGradient id="shU" x1="0" x2="1"><stop offset="0" stop-color="#f4f4ef"/><stop offset="1" stop-color="#c9cbc4"/></linearGradient></defs>
+  <path d="M14 96 C10 70 30 58 52 54 C82 49 104 30 122 16 C130 10 142 12 146 20 C158 40 178 50 208 56 C252 64 292 72 306 90 C312 98 310 108 300 110 L30 112 C20 112 15 106 14 96 Z" fill="url(#shU)"/>
+  <path d="M122 16 C140 44 170 64 210 70" stroke="#1b1c1e" stroke-width="5" fill="none" opacity=".55"/>
+  <path d="M70 86 C120 70 190 74 250 92" stroke="#d7ff3a" stroke-width="9" fill="none" stroke-linecap="round"/>
+  <path d="M10 112 L306 106 C314 106 316 118 306 122 L22 126 C12 126 8 116 10 112 Z" fill="#d7ff3a"/>
+  <path d="M40 118 L300 114" stroke="#111" stroke-width="2" opacity=".35"/></svg>`;
+const CAR = `<svg viewBox="0 0 520 150" width="100%" height="100%"><defs>
+  <linearGradient id="cb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d93b5"/><stop offset=".45" stop-color="#2c3a52"/><stop offset="1" stop-color="#0b0f16"/></linearGradient>
+  <linearGradient id="cg" x1="0" x2="1"><stop offset="0" stop-color="#9fd6ff" stop-opacity="0"/><stop offset=".5" stop-color="#bfe6ff"/><stop offset="1" stop-color="#9fd6ff" stop-opacity="0"/></linearGradient></defs>
+  <ellipse cx="260" cy="138" rx="250" ry="9" fill="#000" opacity=".6"/>
+  <path d="M20 112 C24 92 60 84 110 78 C160 50 220 34 300 36 C360 38 410 60 450 78 C486 82 506 92 508 108 L506 120 L24 122 Z" fill="url(#cb)"/>
+  <path d="M150 74 C190 52 240 44 300 46 C346 48 380 62 404 76 Z" fill="#0b1018" opacity=".95"/>
+  <path d="M30 100 L500 98" stroke="url(#cg)" stroke-width="3"/>
+  <path d="M440 84 L506 96" stroke="#e8f6ff" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="122" cy="120" r="24" fill="#05070a"/><circle cx="122" cy="120" r="14" fill="#1d2530" stroke="#56657a" stroke-width="2"/>
+  <circle cx="404" cy="120" r="24" fill="#05070a"/><circle cx="404" cy="120" r="14" fill="#1d2530" stroke="#56657a" stroke-width="2"/></svg>`;
+const PHONES = `<svg viewBox="0 0 200 180" width="100%" height="100%">
+  <path d="M30 110 C30 40 60 14 100 14 C140 14 170 40 170 110" stroke="#fff4e8" stroke-width="13" fill="none" stroke-linecap="round"/>
+  <rect x="12" y="96" width="42" height="72" rx="20" fill="#fff4e8"/><rect x="146" y="96" width="42" height="72" rx="20" fill="#fff4e8"/>
+  <rect x="22" y="108" width="22" height="48" rx="11" fill="#ffd2c2"/><rect x="156" y="108" width="22" height="48" rx="11" fill="#ffd2c2"/></svg>`;
+const WATCH = `<svg viewBox="0 0 200 200" width="100%" height="100%"><defs>
+  <radialGradient id="wd" cx=".4" cy=".35"><stop offset="0" stop-color="#2a2620"/><stop offset="1" stop-color="#0c0b09"/></radialGradient>
+  <linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f3dc9a"/><stop offset=".5" stop-color="#b98a3e"/><stop offset="1" stop-color="#f0d38a"/></linearGradient></defs>
+  <circle cx="100" cy="100" r="96" fill="url(#wg)"/><circle cx="100" cy="100" r="86" fill="url(#wd)"/>
+  ${Array.from({length: 12}, (_, i) => { const a = i * Math.PI / 6; const r0 = i % 3 ? 72 : 66;
+    return `<line x1="${100 + Math.sin(a) * r0}" y1="${100 - Math.cos(a) * r0}" x2="${100 + Math.sin(a) * 80}" y2="${100 - Math.cos(a) * 80}" stroke="#e9cf8c" stroke-width="${i % 3 ? 2.5 : 5}"/>`; }).join("")}
+  <line x1="100" y1="100" x2="100" y2="48" stroke="#f3dc9a" stroke-width="5" stroke-linecap="round" transform="rotate(-50 100 100)"/>
+  <line x1="100" y1="100" x2="100" y2="30" stroke="#f3dc9a" stroke-width="3.5" stroke-linecap="round" transform="rotate(62 100 100)"/>
+  <circle cx="100" cy="100" r="5" fill="#f3dc9a"/></svg>`;
+const CAN = `<svg viewBox="0 0 120 220" width="100%" height="100%"><defs>
+  <linearGradient id="cn" x1="0" x2="1"><stop offset="0" stop-color="#8fb9d6"/><stop offset=".35" stop-color="#f4fbff"/><stop offset=".6" stop-color="#cfe4f2"/><stop offset="1" stop-color="#6d97b7"/></linearGradient></defs>
+  <path d="M18 22 C18 12 30 8 60 8 C90 8 102 12 102 22 L106 40 L106 190 L100 206 C96 212 82 214 60 214 C38 214 24 212 20 206 L14 190 L14 40 Z" fill="url(#cn)"/>
+  <rect x="14" y="80" width="92" height="74" fill="#0c3a63"/><text x="60" y="124" font-family="Outfit" font-weight="900" font-size="17" fill="#fff" text-anchor="middle" letter-spacing="1">NORTH</text>
+  <text x="60" y="142" font-family="Outfit" font-weight="600" font-size="11" fill="#9fd8ff" text-anchor="middle" letter-spacing="3">LINE</text></svg>`;
+const BOTTLE = `<svg viewBox="0 0 140 220" width="100%" height="100%"><defs>
+  <linearGradient id="bt" x1="0" x2="1"><stop offset="0" stop-color="#7a1424" stop-opacity=".9"/><stop offset=".45" stop-color="#e24a5c" stop-opacity=".85"/><stop offset="1" stop-color="#5a0c18" stop-opacity=".95"/></linearGradient>
+  <linearGradient id="cap" x1="0" x2="1"><stop offset="0" stop-color="#b98a3e"/><stop offset=".5" stop-color="#f6e2a8"/><stop offset="1" stop-color="#a87a30"/></linearGradient></defs>
+  <rect x="50" y="10" width="40" height="40" rx="4" fill="url(#cap)"/><rect x="58" y="50" width="24" height="16" fill="#d9c08a"/>
+  <path d="M14 82 C14 70 24 66 40 66 L100 66 C116 66 126 70 126 82 L126 196 C126 206 118 212 104 212 L36 212 C22 212 14 206 14 196 Z" fill="url(#bt)"/>
+  <path d="M28 80 L28 198" stroke="#fff" stroke-width="5" opacity=".35"/>
+  <text x="70" y="150" font-family="Pala" font-size="16" fill="#fbe9c6" text-anchor="middle" letter-spacing="4">AUREL</text></svg>`;
+const CUP = `<svg viewBox="0 0 200 200" width="100%" height="100%">
+  <path d="M70 52 C60 36 84 28 74 10 M100 52 C90 36 114 28 104 10 M130 52 C120 36 144 28 134 10" stroke="#f6e6d2" stroke-width="5" fill="none" stroke-linecap="round" opacity=".75"/>
+  <path d="M40 66 L160 66 L148 172 C146 184 136 190 124 190 L76 190 C64 190 54 184 52 172 Z" fill="#f6e6d2"/>
+  <path d="M160 86 C196 86 196 140 154 142" stroke="#f6e6d2" stroke-width="12" fill="none"/>
+  <rect x="46" y="100" width="108" height="30" fill="#c2552d"/><text x="100" y="121" font-family="Outfit" font-weight="900" font-size="19" fill="#f6e6d2" text-anchor="middle" letter-spacing="3">TALLO</text></svg>`;
+const SHARD = `<svg viewBox="0 0 200 240" width="100%" height="100%"><defs>
+  <linearGradient id="sh" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f2c6ff"/><stop offset=".45" stop-color="#8a4dff"/><stop offset="1" stop-color="#2a0e6e"/></linearGradient>
+  <linearGradient id="sh2" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ff4ff"/><stop offset="1" stop-color="#2b3d9e"/></linearGradient></defs>
+  <polygon points="100,4 150,92 118,236 66,150" fill="url(#sh)"/><polygon points="100,4 66,150 38,90" fill="url(#sh2)" opacity=".9"/>
+  <polygon points="150,92 196,128 118,236" fill="#4a1fb0" opacity=".85"/><polygon points="38,90 4,140 66,150" fill="#7be3ff" opacity=".55"/>
+  <polyline points="100,4 118,236" stroke="#fff" stroke-width="1.5" opacity=".6"/></svg>`;
+const PHONE = (w, h) => `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%"><defs>
+  <linearGradient id="ps" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6a3cff"/><stop offset=".55" stop-color="#1fb6ff"/><stop offset="1" stop-color="#00e0b8"/></linearGradient></defs>
+  <rect x="0" y="0" width="${w}" height="${h}" rx="${w * 0.17}" fill="#2a2b30"/><rect x="${w * .045}" y="${w * .045}" width="${w * .91}" height="${h - w * .09}" rx="${w * .13}" fill="url(#ps)"/>
+  <rect x="${w * .38}" y="${w * .09}" width="${w * .24}" height="${w * .07}" rx="${w * .035}" fill="#0b0b0e"/></svg>`;
+const LOOP_MAP = `<svg viewBox="0 0 200 200" width="100%" height="100%">
+  <circle cx="100" cy="100" r="78" stroke="#ffb627" stroke-width="10" fill="none"/>
+  ${Array.from({length: 6}, (_, i) => { const a = i * Math.PI / 3 + .4; return `<circle cx="${100 + Math.cos(a) * 78}" cy="${100 + Math.sin(a) * 78}" r="11" fill="#0c1a33" stroke="#fff" stroke-width="5"/>`; }).join("")}
+  <path d="M30 150 C70 120 120 128 168 86" stroke="#3fa9ff" stroke-width="5" fill="none" opacity=".5" stroke-dasharray="2 9" stroke-linecap="round"/></svg>`;
+
+const B = [];
+B.push({id: "zephra", accent: "#d7ff3a", fx: "streaks",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(115deg,#0b0c0d 0%,#16181a 60%,#0b0c0d 100%)"></div>
+    <div style="left:500px;top:-80px;width:150px;height:560px;background:#d7ff3a;transform:skewX(-24deg)"></div>
+    <div style="left:670px;top:-80px;width:34px;height:560px;background:#d7ff3a;opacity:.55;transform:skewX(-24deg)"></div>
+    <div class="fx" style="left:360px;top:170px;width:408px;height:170px"></div>
+    <div style="left:390px;top:168px;width:370px;height:150px">${SHOE}</div>
+    <div class="t" style="left:42px;top:52px;font:italic 700 116px Narrow;color:#fff;letter-spacing:-2px">ZEPHRA</div>
+    <div class="t" style="left:46px;top:196px;font:italic 700 34px Narrow;color:#d7ff3a;letter-spacing:3px">BUILT FOR THE DROP</div>
+    <div class="t" style="left:46px;top:316px;font:600 17px Outfit;color:#8d9095;letter-spacing:4px">AIRFALL 2 · RUNNING</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(180deg,#0b0c0d,#191b1d)"></div>
+    <div style="left:-40px;top:300px;width:520px;height:120px;background:#d7ff3a;transform:skewY(-18deg)"></div>
+    <div class="fx" style="left:0;top:290px;width:384px;height:200px"></div>
+    <div style="left:26px;top:318px;width:340px;height:140px">${SHOE}</div>
+    <div class="t" style="left:30px;top:48px;font:italic 700 96px Narrow;color:#fff;letter-spacing:-2px">ZEPHRA</div>
+    <div class="t" style="left:34px;top:164px;font:italic 700 30px Narrow;color:#d7ff3a;letter-spacing:2px;line-height:1.05;white-space:normal;width:300px">BUILT FOR<br>THE DROP</div>
+    <div class="t" style="left:34px;top:688px;font:600 16px Outfit;color:#8d9095;letter-spacing:4px">AIRFALL 2 · RUNNING</div>`});
+B.push({id: "vantor", accent: "#8fd3ff", fx: "sweep",
+  wide: () => `
+    <div style="inset:0;background:radial-gradient(120% 90% at 50% 105%,#24344d 0%,#0a0f18 55%,#05070a 100%)"></div>
+    <div style="left:0;top:268px;width:768px;height:2px;background:linear-gradient(90deg,transparent,#8fd3ff,transparent);opacity:.7"></div>
+    <div class="fx" style="left:84px;top:160px;width:600px;height:166px"></div>
+    <div style="left:84px;top:150px;width:600px;height:180px">${CAR}</div>
+    <div class="t" style="left:0;width:768px;top:46px;text-align:center;font:600 64px Geo;color:#f2f6fb;letter-spacing:26px">VANTOR</div>
+    <div class="t" style="left:0;width:768px;top:124px;text-align:center;font:400 22px Geo;color:#8fd3ff;letter-spacing:8px">E7 · SILENCE, AT SPEED.</div>
+    <div class="t" style="left:0;width:768px;top:342px;text-align:center;font:400 14px Geo;color:#6c7a8e;letter-spacing:5px">612 KM RANGE · 0–100 IN 3.1 S</div>`,
+  tall: () => `
+    <div style="inset:0;background:radial-gradient(140% 70% at 50% 100%,#24344d 0%,#0a0f18 55%,#05070a 100%)"></div>
+    <div class="fx" style="left:-60px;top:470px;width:504px;height:150px"></div>
+    <div style="left:-60px;top:460px;width:504px;height:152px">${CAR}</div>
+    <div class="t" style="left:0;width:384px;top:72px;text-align:center;font:600 56px Geo;color:#f2f6fb;letter-spacing:14px">VANTOR</div>
+    <div style="left:152px;top:150px;width:80px;height:2px;background:#8fd3ff"></div>
+    <div class="t" style="left:0;width:384px;top:176px;text-align:center;font:400 26px Geo;color:#8fd3ff;letter-spacing:6px;line-height:1.5;white-space:normal">E7<br>SILENCE,<br>AT SPEED.</div>
+    <div class="t" style="left:0;width:384px;top:700px;text-align:center;font:400 13px Geo;color:#6c7a8e;letter-spacing:4px">612 KM RANGE</div>`});
+B.push({id: "hyla", accent: "#ff6b5b", fx: "eq",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(135deg,#ff7a5c 0%,#ff5f6d 55%,#e0457a 100%)"></div>
+    <div style="left:470px;top:-60px;width:420px;height:420px;border-radius:50%;background:#ffb08a;opacity:.45"></div>
+    <div style="left:470px;top:36px;width:260px;height:240px">${PHONES}</div>
+    <div class="fx" style="left:40px;top:300px;width:688px;height:60px"></div>
+    <div class="t" style="left:44px;top:62px;font:900 118px Outfit;color:#fff4e8;letter-spacing:-3px">HYLA</div>
+    <div class="t" style="left:48px;top:186px;font:600 28px Outfit;color:#fff4e8">Hear the city breathe.</div>
+    <div class="t" style="left:48px;top:230px;font:600 17px Outfit;color:#5b1626;letter-spacing:5px">HYLA ONE · NOISE CANCELLING</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(170deg,#ff7a5c 0%,#ff5f6d 55%,#d8407a 100%)"></div>
+    <div style="left:-40px;top:250px;width:464px;height:464px;border-radius:50%;background:#ffb08a;opacity:.4"></div>
+    <div style="left:52px;top:300px;width:280px;height:252px">${PHONES}</div>
+    <div class="fx" style="left:30px;top:600px;width:324px;height:70px"></div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:58px;font:900 112px Outfit;color:#fff4e8;letter-spacing:-3px">HYLA</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:180px;font:600 25px Outfit;color:#fff4e8;white-space:normal;line-height:1.2">Hear the city<br>breathe.</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:704px;font:600 15px Outfit;color:#5b1626;letter-spacing:5px">HYLA ONE</div>`});
+B.push({id: "orrin", accent: "#3aa8ff", fx: "pulse",
+  wide: () => `
+    <div style="inset:0;background:#050507"></div>
+    <div style="left:470px;top:-120px;width:420px;height:620px;background:radial-gradient(closest-side,#3b2a9e 0%,transparent 100%);opacity:.8"></div>
+    <div class="fx" style="left:540px;top:40px;width:170px;height:320px;border-radius:28px"></div>
+    <div style="left:540px;top:40px;width:170px;height:320px;transform:rotate(-8deg)">${PHONE(170, 320)}</div>
+    <div class="t" style="left:56px;top:96px;font:600 104px Outfit;color:#fff;letter-spacing:-2px">Orrin 9</div>
+    <div class="t" style="left:60px;top:220px;font:600 30px Outfit;color:#9aa3b5">All screen. All day.</div>
+    <div class="t" style="left:60px;top:300px;font:600 16px Outfit;color:#5d6577;letter-spacing:4px">FROM 699 · ORRIN.CITY</div>`,
+  tall: () => `
+    <div style="inset:0;background:#050507"></div>
+    <div style="left:-80px;top:250px;width:544px;height:560px;background:radial-gradient(closest-side,#3b2a9e 0%,transparent 100%);opacity:.85"></div>
+    <div class="fx" style="left:102px;top:250px;width:180px;height:340px;border-radius:30px"></div>
+    <div style="left:102px;top:250px;width:180px;height:340px">${PHONE(180, 340)}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:70px;font:600 86px Outfit;color:#fff;letter-spacing:-2px">Orrin 9</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:176px;font:600 24px Outfit;color:#9aa3b5">All screen. All day.</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:680px;font:600 14px Outfit;color:#5d6577;letter-spacing:4px">FROM 699</div>`});
+const SKY_SIL = `<svg viewBox="0 0 768 120" width="100%" height="100%" preserveAspectRatio="none"><path d="M0 120 L0 70 L40 70 L40 40 L70 40 L70 64 L110 64 L110 20 L130 8 L150 20 L150 60 L200 60 L200 34 L240 34 L240 74 L290 74 L290 48 L310 48 L310 14 L340 14 L340 56 L390 56 L390 78 L430 78 L430 30 L470 30 L470 62 L520 62 L520 44 L540 24 L560 44 L560 70 L610 70 L610 36 L650 36 L650 66 L700 66 L700 50 L740 50 L740 80 L768 80 L768 120 Z" fill="#1a0b2e"/></svg>`;
+B.push({id: "skyline", accent: "#ff9a3c", fx: "eq",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(180deg,#ffb347 0%,#ff6a5c 38%,#c13584 70%,#3b1a6e 100%)"></div>
+    <div style="left:520px;top:70px;width:170px;height:170px;border-radius:50%;background:linear-gradient(#fff3b0,#ffb347)"></div>
+    <div class="fx" style="left:0;top:250px;width:768px;height:134px"></div>
+    <div style="left:0;top:264px;width:768px;height:120px">${SKY_SIL}</div>
+    <div class="t" style="left:40px;top:36px;font:900 82px Outfit;color:#1a0b2e;letter-spacing:-1px;line-height:.92;white-space:normal;width:460px">SKYLINE<br>SESSIONS</div>
+    <div class="t" style="left:44px;top:212px;font:700 20px Outfit;color:#fff;letter-spacing:3px">NOVA KIDS · THE PARALLELS · JUNO RAY · MERIDIAN</div>
+    <div class="t" style="left:44px;top:330px;font:700 22px Outfit;color:#ffd27a;letter-spacing:5px">14–16 AUG · HARBOUR PARK</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(180deg,#ffb347 0%,#ff6a5c 34%,#c13584 66%,#3b1a6e 100%)"></div>
+    <div style="left:107px;top:330px;width:170px;height:170px;border-radius:50%;background:linear-gradient(#fff3b0,#ffb347)"></div>
+    <div class="fx" style="left:0;top:470px;width:384px;height:298px"></div>
+    <div style="left:0;top:520px;width:384px;height:110px">${SKY_SIL}</div>
+    <div style="left:0;top:628px;width:384px;height:140px;background:#1a0b2e"></div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:52px;font:900 76px Outfit;color:#1a0b2e;letter-spacing:-1px;line-height:.92;white-space:normal">SKYLINE<br>SESSIONS</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:228px;font:700 17px Outfit;color:#fff;letter-spacing:2px;line-height:1.6;white-space:normal">NOVA KIDS · THE PARALLELS<br>JUNO RAY · MERIDIAN</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:676px;font:700 20px Outfit;color:#ffd27a;letter-spacing:4px;line-height:1.5;white-space:normal">14–16 AUG<br>HARBOUR PARK</div>`});
+B.push({id: "riftbound", accent: "#a86bff", fx: "pulse",
+  wide: () => `
+    <div style="inset:0;background:radial-gradient(90% 120% at 72% 50%,#2a1260 0%,#0d0722 60%,#05030d 100%)"></div>
+    <div class="fx" style="left:470px;top:20px;width:240px;height:350px"></div>
+    <div style="left:490px;top:28px;width:200px;height:340px">${SHARD}</div>
+    <div class="t" style="left:48px;top:110px;font:700 86px Narrow;color:#f3ecff;letter-spacing:7px">RIFTBOUND</div>
+    <div style="left:52px;top:220px;width:120px;height:4px;background:#a86bff"></div>
+    <div class="t" style="left:52px;top:246px;font:700 30px Narrow;color:#cdb6ff;letter-spacing:7px">SEASON 4 · OUT NOW</div>
+    <div class="t" style="left:52px;top:330px;font:600 14px Outfit;color:#6e5aa8;letter-spacing:4px">THE SHATTERED COAST</div>`,
+  tall: () => `
+    <div style="inset:0;background:radial-gradient(120% 70% at 50% 60%,#2a1260 0%,#0d0722 60%,#05030d 100%)"></div>
+    <div class="fx" style="left:52px;top:236px;width:280px;height:380px"></div>
+    <div style="left:82px;top:250px;width:220px;height:350px">${SHARD}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:70px;font:700 60px Narrow;color:#f3ecff;letter-spacing:4px">RIFTBOUND</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:156px;font:700 24px Narrow;color:#cdb6ff;letter-spacing:6px">SEASON 4</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:672px;font:700 26px Narrow;color:#cdb6ff;letter-spacing:8px">OUT NOW</div>`});
+B.push({id: "kairos", accent: "#e8c57a", fx: "hand",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(90deg,#060606 0%,#14110c 100%)"></div>
+    <div style="left:420px;top:0;width:348px;height:384px;background:radial-gradient(closest-side,#3a2c14,transparent);opacity:.7"></div>
+    <div class="fx" style="left:494px;top:52px;width:280px;height:280px;border-radius:50%"></div>
+    <div style="left:494px;top:52px;width:280px;height:280px">${WATCH}</div>
+    <div class="t" style="left:60px;top:112px;font:400 72px Didone;color:#e8c57a;letter-spacing:12px">KAIROS</div>
+    <div style="left:64px;top:214px;width:60px;height:1px;background:#e8c57a"></div>
+    <div class="t" style="left:62px;top:236px;font:italic 400 32px Didone;color:#cfc6b4">Time, held.</div>
+    <div class="t" style="left:64px;top:326px;font:400 13px Didone;color:#7d7462;letter-spacing:6px">GENÈVE · SINCE 1891</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(180deg,#060606 0%,#14110c 100%)"></div>
+    <div style="left:0;top:250px;width:384px;height:420px;background:radial-gradient(closest-side,#3a2c14,transparent);opacity:.8"></div>
+    <div class="fx" style="left:52px;top:300px;width:280px;height:280px;border-radius:50%"></div>
+    <div style="left:52px;top:300px;width:280px;height:280px">${WATCH}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:84px;font:400 54px Didone;color:#e8c57a;letter-spacing:9px">KAIROS</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:178px;font:italic 400 28px Didone;color:#cfc6b4">Time, held.</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:690px;font:400 12px Didone;color:#7d7462;letter-spacing:6px">SINCE 1891</div>`});
+B.push({id: "mirelle", accent: "#c79a6b", fx: "none",
+  wide: () => `
+    <div style="inset:0;background:#efe7db"></div>
+    <div style="left:530px;top:40px;width:130px;height:420px;border-radius:65px 65px 0 0;background:#c79a6b"></div>
+    <div style="left:612px;top:90px;width:130px;height:420px;border-radius:65px 65px 0 0;background:#1e1b18"></div>
+    <div style="left:658px;top:150px;width:40px;height:40px;border-radius:50%;background:#efe7db"></div>
+    <div class="t" style="left:56px;top:100px;font:400 80px Didone;color:#1e1b18;letter-spacing:8px">MIRELLE</div>
+    <div class="t" style="left:60px;top:214px;font:italic 400 28px Didone;color:#6d5a46">Autumn / Winter 27</div>
+    <div class="t" style="left:60px;top:322px;font:400 13px Didone;color:#8a7a68;letter-spacing:7px">THE QUIET COLLECTION</div>`,
+  tall: () => `
+    <div style="inset:0;background:#efe7db"></div>
+    <div style="left:60px;top:260px;width:150px;height:560px;border-radius:75px 75px 0 0;background:#c79a6b"></div>
+    <div style="left:170px;top:320px;width:150px;height:520px;border-radius:75px 75px 0 0;background:#1e1b18"></div>
+    <div style="left:222px;top:380px;width:46px;height:46px;border-radius:50%;background:#efe7db"></div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:70px;font:400 52px Didone;color:#1e1b18;letter-spacing:6px">MIRELLE</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:158px;font:italic 400 24px Didone;color:#6d5a46">Autumn / Winter 27</div>`});
+B.push({id: "northline", accent: "#9fd8ff", fx: "bubbles",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(160deg,#dff3ff 0%,#7cc4ef 55%,#2a7fc0 100%)"></div>
+    <div class="fx" style="left:430px;top:0;width:338px;height:384px"></div>
+    <div style="left:580px;top:40px;width:150px;height:300px;transform:rotate(8deg)">${CAN}</div>
+    <div class="t" style="left:50px;top:90px;font:900 84px Outfit;color:#0c3a63;letter-spacing:-2px">NORTHLINE</div>
+    <div class="t" style="left:54px;top:200px;font:600 40px Outfit;color:#fff">Cold. Clear.</div>
+    <div class="t" style="left:56px;top:316px;font:700 15px Outfit;color:#0c3a63;letter-spacing:5px">SPARKLING · ZERO SUGAR</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(170deg,#dff3ff 0%,#7cc4ef 50%,#2a7fc0 100%)"></div>
+    <div class="fx" style="left:0;top:230px;width:384px;height:538px"></div>
+    <div style="left:112px;top:270px;width:160px;height:320px">${CAN}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:72px;font:900 54px Outfit;color:#0c3a63;letter-spacing:-1px">NORTHLINE</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:150px;font:600 32px Outfit;color:#fff">Cold. Clear.</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:680px;font:700 14px Outfit;color:#0c3a63;letter-spacing:4px">ZERO SUGAR</div>`});
+B.push({id: "aurel", accent: "#e24a5c", fx: "sweep",
+  wide: () => `
+    <div style="inset:0;background:radial-gradient(100% 120% at 75% 50%,#5c0f1c 0%,#2a060c 60%,#140205 100%)"></div>
+    <div class="fx" style="left:520px;top:40px;width:180px;height:300px"></div>
+    <div style="left:530px;top:52px;width:170px;height:290px">${BOTTLE}</div>
+    <div class="t" style="left:60px;top:104px;font:400 100px Pala;color:#fbe9c6;letter-spacing:18px">AUREL</div>
+    <div class="t" style="left:64px;top:228px;font:italic 400 30px Pala;color:#e9b7a8">No. 7 — eau de parfum</div>
+    <div class="t" style="left:66px;top:322px;font:400 13px Pala;color:#9b6a62;letter-spacing:6px">WEAR THE EVENING</div>`,
+  tall: () => `
+    <div style="inset:0;background:radial-gradient(140% 70% at 50% 62%,#5c0f1c 0%,#2a060c 60%,#140205 100%)"></div>
+    <div class="fx" style="left:100px;top:270px;width:184px;height:320px"></div>
+    <div style="left:104px;top:276px;width:176px;height:300px">${BOTTLE}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:78px;font:400 72px Pala;color:#fbe9c6;letter-spacing:12px">AUREL</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:172px;font:italic 400 26px Pala;color:#e9b7a8">No. 7</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:676px;font:400 12px Pala;color:#9b6a62;letter-spacing:6px">WEAR THE EVENING</div>`});
+B.push({id: "tallo", accent: "#c2552d", fx: "none",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(120deg,#3b2316 0%,#5a3420 100%)"></div>
+    <div style="left:470px;top:-40px;width:340px;height:464px;background:#c2552d;transform:skewX(-10deg)"></div>
+    <div style="left:500px;top:60px;width:240px;height:240px">${CUP}</div>
+    <div class="t" style="left:54px;top:86px;font:900 104px Outfit;color:#f6e6d2;letter-spacing:6px">TALLO</div>
+    <div class="t" style="left:58px;top:208px;font:italic 400 30px Didone;color:#e8c9a8">Slow mornings, done right.</div>
+    <div class="t" style="left:60px;top:318px;font:700 14px Outfit;color:#c99a75;letter-spacing:5px">ROASTED IN WESTBANK SINCE 1962</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(180deg,#3b2316 0%,#5a3420 100%)"></div>
+    <div style="left:-40px;top:300px;width:464px;height:300px;background:#c2552d;transform:skewY(-10deg)"></div>
+    <div style="left:72px;top:300px;width:240px;height:240px">${CUP}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:70px;font:900 84px Outfit;color:#f6e6d2;letter-spacing:6px">TALLO</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:172px;font:italic 400 26px Didone;color:#e8c9a8;white-space:normal;line-height:1.25">Slow mornings,<br>done right.</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:690px;font:700 13px Outfit;color:#c99a75;letter-spacing:4px">SINCE 1962</div>`});
+B.push({id: "cityloop", accent: "#ffb627", fx: "orbit",
+  wide: () => `
+    <div style="inset:0;background:linear-gradient(135deg,#0c1a33 0%,#13284d 100%)"></div>
+    <div class="fx" style="left:500px;top:62px;width:260px;height:260px;border-radius:50%"></div>
+    <div style="left:500px;top:62px;width:260px;height:260px">${LOOP_MAP}</div>
+    <div class="t" style="left:54px;top:70px;font:600 22px Outfit;color:#ffb627;letter-spacing:8px">THE</div>
+    <div class="t" style="left:50px;top:98px;font:900 80px Outfit;color:#fff;letter-spacing:-1px">CITY LOOP</div>
+    <div class="t" style="left:54px;top:210px;font:600 28px Outfit;color:#b9c8e6">Six stations. One circle.</div>
+    <div class="t" style="left:54px;top:252px;font:600 28px Outfit;color:#b9c8e6">Every four minutes.</div>`,
+  tall: () => `
+    <div style="inset:0;background:linear-gradient(170deg,#0c1a33 0%,#13284d 100%)"></div>
+    <div class="fx" style="left:42px;top:270px;width:300px;height:300px;border-radius:50%"></div>
+    <div style="left:42px;top:270px;width:300px;height:300px">${LOOP_MAP}</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:62px;font:600 20px Outfit;color:#ffb627;letter-spacing:8px">THE</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:90px;font:900 62px Outfit;color:#fff;letter-spacing:-1px">CITY LOOP</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:176px;font:600 22px Outfit;color:#b9c8e6;white-space:normal;line-height:1.3">Six stations.<br>One circle.</div>
+    <div class="t" style="left:0;width:384px;text-align:center;top:660px;font:600 20px Outfit;color:#b9c8e6">Every four minutes.</div>`});
+
+// ---------------------------------------------------------------- layout
+const WIDE = [768, 384], TALL = [384, 768];
+const meta = {size: [3072, 2880], ads: [], tickers: []};
+const cells = [];
+B.forEach((b, i) => {
+  const w = [(i % 4) * 768, Math.floor(i / 4) * 384];
+  const t = [(i % 8) * 384, 1152 + Math.floor(i / 8) * 768];
+  cells.push([b, "wide", w, WIDE], [b, "tall", t, TALL]);
+  meta.ads.push({id: b.id, accent: b.accent, fx: b.fx, wide: [...w, ...WIDE], tall: [...t, ...TALL]});
+});
+const html = [];
+for (const [b, fmt, pos, size] of cells) {
+  html.push(`<div class="cell" id="${b.id}_${fmt}" style="left:${pos[0]}px;top:${pos[1]}px;width:${size[0]}px;height:${size[1]}px">${b[fmt]()}</div>`);
+}
+// Tickers: one long seamless strip each (the shader scrolls them).
+const MARKET = [["ZPH", "142.10", "+1.8"], ["VNT", "88.42", "+0.6"], ["HYL", "31.07", "-0.4"], ["ORN", "205.66", "+2.2"],
+  ["KRS", "1,204", "+0.3"], ["NTL", "19.84", "-1.1"], ["RFT", "47.95", "+4.6"]];
+const mk = MARKET.map(([s, p, c]) => `<span style="position:static;color:#fff;margin-right:14px">${s}</span><span style="position:static;color:#c9ced8;margin-right:12px">${p}</span><span style="position:static;color:${c[0] === "-" ? "#ff5d5d" : "#3dff9a"};margin-right:64px">${c[0] === "-" ? "▼" : "▲"} ${c.replace(/^[+-]/, "")}%</span>`).join("");
+const NEWS = ["LUMEN CIRCUS", "TONIGHT: SKYLINE SESSIONS AT HARBOUR PARK", "CITY LOOP: GOOD SERVICE",
+  "CLEAR EVENING, 18°"];
+const nw = NEWS.map(n => `<span style="position:static;margin-right:40px">${n}</span><span style="position:static;color:#ffb627;margin-right:40px">●</span>`).join("");
+html.push(`<div class="cell" id="ticker_market" style="left:0;top:2688px;width:3072px;height:96px;background:#06080c">
+  <div class="t" id="tk_market" style="left:0;top:28px;font:700 40px Narrow;letter-spacing:1px">${mk}</div>
+  <div class="fx" style="left:0;top:0;width:3072px;height:96px"></div></div>`);
+html.push(`<div class="cell" id="ticker_news" style="left:0;top:2784px;width:3072px;height:96px;background:#0c0a06">
+  <div class="t" id="tk_news" style="left:0;top:28px;font:700 40px Outfit;color:#ffe3b0;letter-spacing:2px">${nw}</div>
+  <div class="fx" style="left:0;top:0;width:3072px;height:96px"></div></div>`);
+document.body.insertAdjacentHTML("beforeend", html.join(""));
+// The scroll period is the strip's own width (it must fit in 3072).
+const per = id => Math.ceil(document.getElementById(id).scrollWidth);
+meta.tickers.push({id: "market", rect: [0, 2688, 3072, 96], period: per("tk_market")}, {id: "news", rect: [0, 2784, 3072, 96], period: per("tk_news")});
+if (location.search.includes("mask")) document.body.classList.add("mask");
+// fx rects (cell-relative, 0..1) from the .fx elements.
+for (const ad of meta.ads) {
+  for (const fmt of ["wide", "tall"]) {
+    const cell = document.getElementById(`${ad.id}_${fmt}`);
+    const fx = cell.querySelector(".fx");
+    if (!fx) { ad[fmt + "_fx"] = [0, 0, 0, 0]; continue; }
+    const cr = cell.getBoundingClientRect();
+    fx.style.display = "block";
+    const r = fx.getBoundingClientRect();
+    if (!document.body.classList.contains("mask")) fx.style.display = "";
+    ad[fmt + "_fx"] = [(r.left - cr.left) / cr.width, (r.top - cr.top) / cr.height, r.width / cr.width, r.height / cr.height];
+  }
+}
+window.ATLAS_META = meta;
+</script>
+</body>
+</html>

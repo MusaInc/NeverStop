@@ -1,0 +1,8 @@
+.godot/
+build/
+scratch/
+screenshots/
+*.tmp
+export_credentials.cfg
+__pycache__/
+*.blend1
