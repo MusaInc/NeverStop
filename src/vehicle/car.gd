@@ -59,6 +59,7 @@ var upside_time := 0.0
 var steer_angle := 0.0
 var last_impact_time := -10.0
 var grip_loss := 0.0           # seconds of reduced grip after a heavy hit
+var puncture := 0.0            # 1 = tyres shredded by a spike strip
 
 # wheel layout (local, at the suspension top), filled from spec
 var _wheel_pos: Array[Vector3] = []
@@ -81,6 +82,7 @@ var visual: Node3D             # CarVisual (optional)
 func setup(p_spec: Dictionary, p_role := "player") -> void:
 	spec = p_spec
 	role = p_role
+	process_physics_priority = 10  # after every driver has set the controls
 	mass = spec["mass"]
 	collision_layer = BODY_LAYER
 	collision_mask = BODY_MASK
@@ -161,6 +163,7 @@ func reset_damage() -> void:
 		dmg[k] = 0.0
 	disabled = false
 	grip_loss = 0.0
+	puncture = 0.0
 	nitro_amount = 1.0
 
 
@@ -200,7 +203,7 @@ func _physics_process(dt: float) -> void:
 	# Reverse: brake held at (near) standstill.
 	var reversing := brk > 0.5 and forward_speed < 1.5 and thr < 0.5
 	var drive := 0.0
-	var top: float = spec["top_speed"] * (1.0 - 0.2 * (1.0 - health))
+	var top: float = spec["top_speed"] * (1.0 - 0.2 * (1.0 - health)) * (1.0 - 0.18 * puncture)
 	if reversing:
 		drive = -0.45 * brk
 		brk = 0.0
@@ -229,7 +232,7 @@ func _physics_process(dt: float) -> void:
 	var c: float = spec["damper"] * mass
 	var rest: float = spec["susp_len"]
 	var wr: float = spec["wheel_r"]
-	var mu: float = spec["grip"] * (1.0 - 0.25 * (1.0 - health))
+	var mu: float = spec["grip"] * (1.0 - 0.25 * (1.0 - health)) * (1.0 - 0.28 * puncture)
 	if grip_loss > 0.0:
 		mu *= 0.45
 		grip_loss -= dt

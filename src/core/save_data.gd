@@ -1,5 +1,7 @@
 extends Node
-## Local personal bests and lifetime statistics (user://save.json).
+## The player's offline profile (user://save.json): currency, owned cars and
+## their upgrades/paint/wheels, unlocked starts, personal records, lifetime
+## stats and challenge progress. No accounts, no network, no tracking.
 
 signal changed
 
@@ -9,30 +11,30 @@ const DEFAULT_PATH := "user://save.json"
 var path := DEFAULT_PATH
 var data := {}
 const DEFAULTS := {
-	"best_trial_times": {},  # course id -> seconds
-	"best_endurance_m": 0.0,
-	"best_chain": 0,
-	"total_distance_m": 0.0,
-	"total_swings": 0,
-	"top_speed_ms": 0.0,
-	"play_time_s": 0.0,
-	"tokens": [],  # collected Free Swing token ids
-	"tutorial_done": false,
-	"suit": "ember",
-	"coins": 0,         # spendable (Shop)
-	"coins_earned": 0,  # lifetime
-	"best_multiplier": 1.0,
-	"owned": [],        # bought Shop item ids
-	"outfit": {},       # Shop slot -> item id (the suit stays in "suit")
-	"homes": [],        # bought homes (Homes; the starter is always owned)
-	"home": "starter",  # the home Free Swing starts in
-	# Contracts (Contracts / JobBoard). Flat keys: older saves load unchanged.
-	"rep": 0,           # reputation (rank ladder in Contracts.RANKS)
-	"jobs_done": 0,     # contracts completed (legal + underworld)
-	"jobs_crime": 0,    # of which underworld
-	"jobs_failed": 0,   # out of time / busted / abandoned
-	"jobs_busted": 0,
-	"jobs_earned": 0,   # coins paid by contracts (net of fines)
+	"version": 1,
+	"cash": 0,
+	"cash_earned": 0,
+	"car": "kestrel",
+	"owned": ["kestrel"],
+	"cars": {},          # id -> {"upgrades": {engine, grip, armour, nitro}, "paint": idx, "wheel": id}
+	"paints": [0, 1],    # owned paint indices (CarCatalog.PAINTS)
+	"wheels": ["steel"], # owned wheel styles
+	"start": "downtown",
+	"starts": ["downtown"],
+	"best_score": 0,
+	"best_time": 0.0,
+	"best_heat": 0,
+	"best_wrecked": 0,
+	"best_near_misses": 0,
+	"best_distance": 0.0,
+	"runs": 0,
+	"total_time": 0.0,
+	"total_distance": 0.0,
+	"total_wrecked": 0,
+	"total_near_misses": 0,
+	"total_roadblocks": 0,
+	"challenges": {},    # id -> true when complete
+	"history": [],       # last 10 runs: {score, time, heat, car}
 }
 
 
@@ -92,92 +94,86 @@ func save() -> void:
 	changed.emit()
 
 
-## Returns true if `seconds` is a new best for the course.
-func submit_trial(course: String, seconds: float) -> bool:
-	var best = data["best_trial_times"].get(course, INF)
-	if seconds < best:
-		data["best_trial_times"][course] = seconds
-		save()
-		return true
-	return false
+func cash() -> int:
+	return int(data["cash"])
 
 
-func best_trial(course: String) -> float:
-	return data["best_trial_times"].get(course, INF)
-
-
-func submit_endurance(metres: float) -> bool:
-	if metres > data["best_endurance_m"]:
-		data["best_endurance_m"] = metres
-		save()
-		return true
-	return false
-
-
-func add_stats(distance: float, swings: int, top_speed: float, chain: int, seconds: float) -> void:
-	data["total_distance_m"] += distance
-	data["total_swings"] += swings
-	data["top_speed_ms"] = maxf(data["top_speed_ms"], top_speed)
-	data["best_chain"] = maxi(data["best_chain"], chain)
-	data["play_time_s"] += seconds
-	save()
-
-
-## Returns true the first time a token is collected.
-func collect_token(id: int) -> bool:
-	if has_token(id):
+func spend(n: int) -> bool:
+	if cash() < n:
 		return false
-	data["tokens"].append(id)
+	data["cash"] = cash() - n
 	save()
 	return true
 
 
-func has_token(id: int) -> bool:
-	# JSON round-trips ints as floats.
-	for t in data["tokens"]:
-		if int(t) == id:
-			return true
-	return false
+func add_cash(n: int) -> void:
+	data["cash"] = cash() + n
+	data["cash_earned"] = int(data["cash_earned"]) + n
 
 
-func token_count() -> int:
-	return data["tokens"].size()
+func owns(car_id: String) -> bool:
+	return car_id in data["owned"]
 
 
-func complete_tutorial() -> void:
-	if not data["tutorial_done"]:
-		data["tutorial_done"] = true
-		save()
+func car_state(car_id: String) -> Dictionary:
+	var cs: Dictionary = data["cars"].get(car_id, {})
+	if cs.is_empty():
+		cs = {"upgrades": {"engine": 0, "grip": 0, "armour": 0, "nitro": 0}, "paint": -1, "wheel": ""}
+		data["cars"][car_id] = cs
+	return cs
 
 
-## Banks coins in memory; `save()` (or the next save) writes them out.
-func add_coins(n: int) -> void:
-	data["coins"] = int(data["coins"]) + n
-	data["coins_earned"] = int(data["coins_earned"]) + n
+func upgrades(car_id: String) -> Dictionary:
+	var u: Dictionary = car_state(car_id)["upgrades"]
+	var out := {}
+	for k in u:
+		out[k] = int(u[k])
+	return out
 
 
-## Records a settled contract: coins (may be a fine), reputation, counters.
-## A fine never takes the balance below zero.
-func record_job(legal: bool, outcome: String, coins: int, rep: int) -> int:
-	if coins < 0:
-		coins = -mini(-coins, int(data["coins"]))
-		data["coins"] = int(data["coins"]) + coins
-	elif coins > 0:
-		add_coins(coins)
-	data["jobs_earned"] = int(data.get("jobs_earned", 0)) + coins
-	data["rep"] = int(data.get("rep", 0)) + rep
-	if outcome == "done":
-		data["jobs_done"] = int(data.get("jobs_done", 0)) + 1
-		if not legal:
-			data["jobs_crime"] = int(data.get("jobs_crime", 0)) + 1
-	else:
-		data["jobs_failed"] = int(data.get("jobs_failed", 0)) + 1
-		if outcome == "busted":
-			data["jobs_busted"] = int(data.get("jobs_busted", 0)) + 1
+## The spec a run uses: catalogue + upgrades + chosen paint/wheels.
+func car_spec(car_id: String) -> Dictionary:
+	var s := CarCatalog.spec(car_id, upgrades(car_id))
+	var cs := car_state(car_id)
+	var pi := int(cs.get("paint", -1))
+	if pi >= 0 and pi < CarCatalog.PAINTS.size():
+		s["paint"] = CarCatalog.PAINTS[pi][1]
+	var w := str(cs.get("wheel", ""))
+	if w != "":
+		s["wheel"] = w
+	return s
+
+
+## Records a finished run. Returns which records were broken.
+func submit_run(r: Dictionary, car_id: String) -> Array:
+	var broken: Array = []
+	data["runs"] = int(data["runs"]) + 1
+	data["total_time"] = float(data["total_time"]) + r["time"]
+	data["total_distance"] = float(data["total_distance"]) + r["distance"]
+	data["total_wrecked"] = int(data["total_wrecked"]) + r["police_wrecked"]
+	data["total_near_misses"] = int(data["total_near_misses"]) + r["near_misses"]
+	data["total_roadblocks"] = int(data["total_roadblocks"]) + r["roadblocks"]
+	for pair in [["best_score", "score"], ["best_time", "time"], ["best_heat", "max_heat"], ["best_wrecked", "police_wrecked"],
+			["best_near_misses", "near_misses"], ["best_distance", "distance"]]:
+		if float(r[pair[1]]) > float(data[pair[0]]):
+			data[pair[0]] = r[pair[1]]
+			broken.append(pair[0])
+	add_cash(int(r["currency"]))
+	var h: Array = data["history"]
+	h.push_front({"score": r["score"], "time": r["time"], "heat": r["max_heat"], "car": car_id})
+	while h.size() > 10:
+		h.pop_back()
 	save()
-	return coins
+	return broken
 
 
-func set_suit(id: String) -> void:
-	data["suit"] = id
+func challenge_done(id: String) -> bool:
+	return bool(data["challenges"].get(id, false))
+
+
+func complete_challenge(id: String, reward: int) -> void:
+	if challenge_done(id):
+		return
+	data["challenges"][id] = true
+	add_cash(reward)
 	save()

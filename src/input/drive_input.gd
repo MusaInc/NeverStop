@@ -15,16 +15,15 @@ var touch_active := false
 var _steer_smooth := 0.0
 
 
+func _ready() -> void:
+	process_physics_priority = -10  # before the cars read their controls
+
+
 func _physics_process(dt: float) -> void:
 	if car == null or not is_instance_valid(car):
 		return
 	if not enabled:
-		car.throttle = 0.0
-		car.brake = 0.0
-		car.steer = 0.0
-		car.handbrake = false
-		car.nitro = false
-		return
+		return  # someone else (autopilot, cinematic) is driving
 	var key_steer := Input.get_action_strength("steer_right") - Input.get_action_strength("steer_left")
 	var steer := key_steer if absf(key_steer) > absf(touch_steer) else touch_steer
 	# Digital keys ramp in (a tap is a small correction, a hold a full turn).

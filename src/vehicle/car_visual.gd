@@ -142,7 +142,8 @@ func setup(p_car: Car) -> void:
 		pivot.add_child(spin)
 		var wm := MeshInstance3D.new()
 		wm.mesh = wmesh
-		wm.scale = Vector3.ONE * wr
+		# Mesh: radius 1, tyre 0.44 wide along X.
+		wm.scale = Vector3(float(spec.get("tyre_w", 0.26)) / 0.44, wr, wr)
 		if wmesh:
 			for s in wmesh.get_surface_count():
 				var src := wmesh.surface_get_material(s)

@@ -46,6 +46,9 @@ var view_distance := 900.0
 var prop_density := 1.0
 var traffic_density := 1.0
 var traffic: Traffic
+## CitySwing's GPU-animated traffic has no collision: off in NEVER STOP
+## (CivilianTraffic drives real cars instead).
+var gpu_traffic := false
 var max_builds_per_frame := 2
 
 var building_mat: ShaderMaterial
@@ -132,7 +135,7 @@ func _ready() -> void:
 		ads.name = "Ads"
 		add_child(ads)
 		ads.build(layout)
-	if traffic_density > 0.0 and not car_meshes.is_empty():
+	if gpu_traffic and traffic_density > 0.0 and not car_meshes.is_empty():
 		traffic = Traffic.new()
 		traffic.name = "Traffic"
 		traffic.near_range = CAR_NEAR

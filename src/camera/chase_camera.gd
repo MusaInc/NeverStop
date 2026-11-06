@@ -54,6 +54,12 @@ func _ready() -> void:
 	_ray.collision_mask = 1 | (1 << 3)
 
 
+## Camera yaw (Godot convention: 0 looks along -Z), for the minimap.
+func view_yaw() -> float:
+	var f := -global_basis.z
+	return atan2(-f.x, -f.z)
+
+
 func set_target(c: Car, snap := true) -> void:
 	target = c
 	_snap = snap

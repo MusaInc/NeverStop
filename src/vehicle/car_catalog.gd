@@ -42,7 +42,7 @@ const CARS := {
 		"paint": Color(0.1, 0.22, 0.48),
 	},
 	"brute": {
-		"name": "Brute 8", "class": "Muscle", "price": 6000, "body": "brute", "wheel": "split",
+		"tyre_w": 0.3, "name": "Brute 8", "class": "Muscle", "price": 6000, "body": "brute", "wheel": "split",
 		"blurb": "A V8 with a car attached. Huge torque, loose tail, heavy hitter.",
 		"mass": 1720.0, "size": Vector3(1.94, 1.3, 4.88), "wheelbase": 2.88, "track": 1.64, "wheel_r": 0.35,
 		"engine": 8.6, "top_speed": 62.0, "grip": 1.36, "grip_rear": 0.93, "slide": 0.86, "hb_grip": 0.48,
@@ -50,7 +50,7 @@ const CARS := {
 		"paint": Color(0.55, 0.06, 0.04), "nitro": 0.5,
 	},
 	"vanta": {
-		"name": "Vanta S", "class": "Sports", "price": 12000, "body": "vanta", "wheel": "blade",
+		"tyre_w": 0.28, "name": "Vanta S", "class": "Sports", "price": 12000, "body": "vanta", "wheel": "blade",
 		"blurb": "Light, sharp and eager. Turns in like it reads your mind.",
 		"mass": 1290.0, "size": Vector3(1.9, 1.24, 4.45), "wheelbase": 2.6, "track": 1.62, "wheel_r": 0.34,
 		"engine": 8.4, "top_speed": 67.0, "grip": 1.55, "drive": "rwd", "steer_lock": 35.0, "steer_fast": 8.5,
@@ -58,7 +58,7 @@ const CARS := {
 		"paint": Color(0.92, 0.45, 0.06), "nitro": 0.6,
 	},
 	"halcyon": {
-		"name": "Halcyon R", "class": "Supercar", "price": 25000, "body": "halcyon", "wheel": "mesh",
+		"tyre_w": 0.32, "name": "Halcyon R", "class": "Supercar", "price": 25000, "body": "halcyon", "wheel": "mesh",
 		"blurb": "Mid-engined, all-wheel drive, faster than the radio can report.",
 		"mass": 1420.0, "size": Vector3(2.02, 1.1, 4.6), "wheelbase": 2.7, "track": 1.7, "wheel_r": 0.35,
 		"engine": 9.6, "top_speed": 76.0, "grip": 1.62, "drive": "awd", "steer_fast": 7.0, "downforce": 0.02,
@@ -66,7 +66,7 @@ const CARS := {
 		"nitro_time": 5.0,
 	},
 	"warden": {
-		"name": "Warden", "class": "Armoured 4x4", "price": 18000, "body": "warden", "wheel": "steel",
+		"tyre_w": 0.32, "name": "Warden", "class": "Armoured 4x4", "price": 18000, "body": "warden", "wheel": "steel",
 		"blurb": "Armour plate and a winch bumper. Roadblocks are a suggestion.",
 		"mass": 2900.0, "size": Vector3(2.06, 1.8, 4.95), "wheelbase": 2.96, "track": 1.74, "wheel_r": 0.43,
 		"susp_len": 0.4, "engine": 6.8, "top_speed": 53.0, "grip": 1.32, "drive": "awd", "steer_lock": 32.0,
@@ -120,6 +120,7 @@ static func spec(id: String, upgrades := {}) -> Dictionary:
 	var s := BASE.duplicate()
 	s.merge(CARS.get(id, CARS["kestrel"]), true)
 	s["id"] = id
+	_fit_track(s)
 	var e := int(upgrades.get("engine", 0))
 	s["engine"] *= 1.0 + UPGRADES["engine"]["per_level"] * e
 	s["top_speed"] *= 1.0 + UPGRADES["engine"]["per_level"] * 0.5 * e
@@ -136,9 +137,16 @@ static func police_spec(kind: String) -> Dictionary:
 	var s := BASE.duplicate()
 	s.merge(POLICE[kind], true)
 	s["id"] = "police_" + kind
+	_fit_track(s)
 	s["paint"] = (POLICE[kind]["livery"] as Array)[0]
 	s["paint2"] = (POLICE[kind]["livery"] as Array)[1]
 	return s
+
+
+## Tyres flush with the bodywork: the track follows the body's width.
+static func _fit_track(s: Dictionary) -> void:
+	var tw: float = s.get("tyre_w", 0.26)
+	s["track"] = (s["size"] as Vector3).x - tw - 0.05
 
 
 ## Garage bars (0..1) from the handling profile.

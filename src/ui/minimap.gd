@@ -20,17 +20,14 @@ extends Control
 
 const BOUNDS := Rect2(-1180.0, -720.0, 2260.0, 1420.0)  # world x/z covered by the texture
 const M_PER_PX := 1.5
-const R_SLOW := 95.0     # m shown from the centre to the rim, standing
-const R_FAST := 175.0    # ... at full swinging speed
-const MAX_MARKERS := 5
+const R_SLOW := 140.0    # m shown from the centre to the rim, slow
+const R_FAST := 260.0    # ... flat out
+const MAX_MARKERS := 24
 const SHADER := preload("res://src/ui/shaders/minimap.gdshader")
 
 var player: Node3D
 var camera: Node3D
 var markers: Array = []
-## Owned homes: [[world pos, selected]] – small house icons; the selected
-## home is pinned to the rim when off the map.
-var homes: Array = []
 var map_tex: Texture2D
 var _radius := R_SLOW
 var _yaw := 0.0
@@ -96,8 +93,8 @@ func _process(dt: float) -> void:
 	if camera:
 		# Follows the camera (what the player sees), smoothed a touch more.
 		_yaw = lerp_angle(_yaw, camera.view_yaw(), 1.0 - exp(-10.0 * dt))
-	var spd := player.speed()
-	var want := lerpf(R_SLOW, R_FAST, smoothstep(6.0, 40.0, spd))
+	var spd: float = player.speed
+	var want := lerpf(R_SLOW, R_FAST, smoothstep(10.0, 60.0, spd))
 	# Zoom eases slowly (out faster than in) so it never pumps with each swing.
 	_radius = lerpf(_radius, want, 1.0 - exp(-(0.9 if want > _radius else 0.4) * dt))
 	var c := player.global_position
@@ -138,21 +135,11 @@ func _draw_overlay() -> void:
 		var off := sp - ctr
 		var edge := off.length() > rad - 9.0
 		if edge:
-			if m[1] != "next" and shown > 0:
-				continue  # only the main objective is pinned to the rim
+			if m[1] != "roadblock" and m[1] != "heli":
+				continue  # only roadblocks and the helicopter are pinned to the rim
 			sp = ctr + off.normalized() * (rad - 9.0)
 		_marker(ov, sp, String(m[1]), edge)
 		shown += 1
-	# Homes.
-	for hm in homes:
-		var hp := world_to_map(hm[0])
-		var ho := hp - ctr
-		var sel: bool = hm[1]
-		if ho.length() > rad - 9.0:
-			if not sel:
-				continue
-			hp = ctr + ho.normalized() * (rad - 9.0)
-		_house(ov, hp, sel)
 	# North tick on the rim.
 	var n := world_to_map(pc + Vector3(0, 0, -1000.0)) - ctr
 	var np := ctr + n.normalized() * (rad - 1.0)
@@ -170,35 +157,29 @@ func _draw_overlay() -> void:
 	ov.draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0.05, 0.05, 0.06, 0.9), 1.5, true)
 
 
-func _house(ov: Control, p: Vector2, sel: bool) -> void:
-	var col := UiStyle.GOLD if sel else Color(1, 1, 1, 0.85)
-	ov.draw_circle(p, 7.5, Color(0.05, 0.05, 0.06, 0.85))
-	ov.draw_colored_polygon(PackedVector2Array([p + Vector2(-4.5, 0.5), p + Vector2(0, -4.5), p + Vector2(4.5, 0.5)]), col)
-	ov.draw_rect(Rect2(p + Vector2(-3.2, 0.5), Vector2(6.4, 4.0)), col)
-
-
 static func _prio(kind: String) -> int:
-	return {"next": 3, "ring": 2, "job": 2, "crime": 2, "token": 1}.get(kind, 0)
+	return {"roadblock": 4, "heli": 3, "heavy": 2, "patrol": 2, "interceptor": 2, "wreck": 0}.get(kind, 1)
 
 
 func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
+	var t := Time.get_ticks_msec() / 1000.0
 	match kind:
-		"token":
-			ov.draw_circle(p, 5.0, Color(0.05, 0.05, 0.06, 0.8))
-			ov.draw_circle(p, 3.6, UiStyle.TEAL)
-		"job", "crime":
-			# Contract offers: a briefcase-ish rounded square, teal or red.
-			var jc := JobBoard.COL_LEGAL if kind == "job" else JobBoard.COL_CRIME
-			ov.draw_circle(p, 6.5, Color(0.05, 0.05, 0.06, 0.85))
-			ov.draw_rect(Rect2(p + Vector2(-4.0, -2.5), Vector2(8.0, 6.0)), jc)
-			ov.draw_rect(Rect2(p + Vector2(-1.8, -4.2), Vector2(3.6, 1.8)), jc, false, 1.2)
-		"ring", "next":
-			var col := UiStyle.GOLD if kind == "next" else Color(1, 1, 1, 0.75)
-			ov.draw_arc(p, 6.0, 0.0, TAU, 20, Color(0.05, 0.05, 0.06, 0.8), 4.0, true)
-			ov.draw_arc(p, 6.0, 0.0, TAU, 20, col, 2.2, true)
+		"roadblock":
+			ov.draw_rect(Rect2(p + Vector2(-8, -3.5), Vector2(16, 7)), Color(0.05, 0.05, 0.06, 0.9))
+			for i in 4:
+				ov.draw_rect(Rect2(p + Vector2(-7 + i * 3.6, -2.5), Vector2(1.8, 5)), UiStyle.RED if i % 2 == 0 else UiStyle.WHITE)
+		"heli":
+			ov.draw_circle(p, 6.5, Color(0.05, 0.05, 0.06, 0.8))
+			ov.draw_arc(p, 5.0, t * 9.0, t * 9.0 + PI * 0.7, 8, UiStyle.WHITE, 1.6, true)
+			ov.draw_arc(p, 5.0, t * 9.0 + PI, t * 9.0 + PI * 1.7, 8, UiStyle.WHITE, 1.6, true)
+		"wreck":
+			ov.draw_circle(p, 2.6, Color(0.6, 0.6, 0.62, 0.7))
 		_:
-			var d := PackedVector2Array([p + Vector2(0, -5), p + Vector2(5, 0), p + Vector2(0, 5), p + Vector2(-5, 0)])
-			ov.draw_colored_polygon(d, Color(1, 1, 1, 0.8))
+			# Police: a dot flashing red/blue; heavy units bigger.
+			var r := 4.6 if kind == "heavy" else 3.6
+			var col := UiStyle.RED if fmod(t * 2.6, 1.0) < 0.5 else UiStyle.BLUE
+			ov.draw_circle(p, r + 1.5, Color(0.03, 0.03, 0.04, 0.85))
+			ov.draw_circle(p, r, col)
 	if pinned:
 		ov.draw_arc(p, 9.0, 0.0, TAU, 20, Color(1, 1, 1, 0.35), 1.0, true)
 

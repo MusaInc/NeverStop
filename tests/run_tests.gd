@@ -11,6 +11,11 @@ var _checks := 0
 
 
 func _initialize() -> void:
+	# Watchdog: a script that fails to compile leaves an await hanging.
+	var limit := 600.0
+	create_timer(limit, true, false, true).timeout.connect(func():
+		print("WATCHDOG: tests did not finish in %d s" % limit)
+		quit(99))
 	_run.call_deferred()
 
 
@@ -33,6 +38,10 @@ func _run() -> void:
 	var t0 := Time.get_ticks_msec()
 	for f in files:
 		var script: GDScript = load("res://tests/" + f)
+		if script == null or not script.can_instantiate():
+			failures += 1
+			print("  FAIL  ", f, " (does not compile)")
+			continue
 		var suite: Object = script.new()
 		if suite is Node:
 			root.add_child(suite)
