@@ -30,3 +30,10 @@ iPhone only, landscape, iOS 15+, no capabilities, no tracking. The VPS cannot
 compile, sign or run it: on a Mac, open the project, set the team/signing,
 build to a device, then use Settings → Show performance during a chase to read
 real FPS. Nothing has been run on an iPhone yet.
+
+## Public web test build
+
+Approved by the owner on 2026-11-06: `tools/publish_web.sh` copies `build/web` to `/srv/neverstop`,
+which Caddy serves publicly (no sign-in) at https://musastudios.co.uk/neverstop/ with gzip and a
+precompressed wasm. `index.pck` is deliberately not gzip-encoded. Verify with
+`node tools/web/web_test.mjs https://musastudios.co.uk/neverstop/index.html <outdir> chromium`.
