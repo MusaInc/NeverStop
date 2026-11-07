@@ -1,3 +1,22 @@
+# Status: 2026-11-07 (vehicles pass 2, unreleased)
+
+## Kerbs, handling, smoke, headlights, car looks (2026-11-07)
+
+- **Kerbs and low ledges no longer crash you.** The physics hull floor sits at 0.3 m (kerbs are 0.15 m) with wedged
+  nose/tail, the damper speed is capped (no launch when a wheel drops onto a kerb), and anything up to 0.62 m tall
+  that the hull touches low down is climbed: the car hops up and keeps its speed, with no damage. Walls still crash
+  (a probe ray checks the obstacle's real height). New test `test_kerbs_and_low_ledges_are_driven_over`: on the old
+  physics the Stiletto and Kestrel stopped dead (health 0.81 / 0.87); now all six cases climb at 36-58 km/h, no damage.
+- **Steering**: unwinding and counter-steer are 1.7x quicker than turning in; the straight-line hold blends out with
+  steering instead of switching off at 4 %.
+- **Smoke never blinds you**: every puff fades out near the camera and as it fills the screen; tyre smoke is lower,
+  thinner and shorter-lived; engine smoke streams back with speed; lumpy rotating puffs instead of discs; dust fades too.
+- **Headlights**: player car has two real spotlights (shadows on HIGH) plus a faint visible beam, night only; every
+  car gets lamp glows at night (one draw call per car); lenses and tail lamps brighten at night.
+- **Looks**: car paint shader with sky reflections, horizon line, sun glint and fake occlusion; glass reflects the sky;
+  wheels rebuilt (dark deep wells, brake discs, red calipers that don't spin, sidewall band, brighter alloy).
+- Not checked by a person yet: the new kerb behaviour and steering on a phone.
+
 # Status: 2026-11-06 (0.2.0)
 
 ## 0.2.0 (2026-11-06, later): vehicles, lighting, bridge

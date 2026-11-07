@@ -170,3 +170,35 @@ func test_stuck_and_upside_down_are_detected(t) -> void:
 	car.place(Transform3D(Basis(Vector3.FORWARD, PI), Vector3(0, 1.5, 0)))
 	await DriveBench.frames(get_tree(), 120)
 	t.check(car.upside_time > 0.5, "upside-down timer runs (%.2f)" % car.upside_time)
+
+
+## Kerbs (0.15 m) and low ledges (0.4 m) are driven over, head-on or at an
+## angle, without a crash, damage or losing most of the speed.
+func test_kerbs_and_low_ledges_are_driven_over(t) -> void:
+	for c in [["marlin", 0.15, 0.0, 12.0], ["marlin", 0.15, 35.0, 12.0], ["stiletto", 0.15, 0.0, 15.0],
+			["kestrel", 0.4, 0.0, 14.0], ["vanta", 0.4, 30.0, 16.0], ["mammoth", 0.15, 20.0, 10.0]]:
+		var id: String = c[0]
+		var h: float = c[1]
+		var wall := bench.add_wall(Vector3(0, h * 0.5, -60), Vector3(60, h, 100), deg_to_rad(c[2]))
+		var car := bench.spawn_car(id)
+		await DriveBench.frames(get_tree(), 30)
+		var v0: float = c[3]
+		car.linear_velocity = -car.global_basis.z * v0
+		_drive(car, 0.6, 0.0, 0.0)
+		var min_sp := INF
+		var hits := [0.0]
+		car.impact.connect(func(s, _a, _n, _o): hits[0] = maxf(hits[0], s))
+		for i in 150:
+			await get_tree().physics_frame
+			if car.global_position.z < -11.0 and car.global_position.z > -16.0:
+				min_sp = minf(min_sp, car.speed)
+		var on_top := car.global_position.y > h - 0.1
+		t.note("%s over a %.2f m ledge at %d°, %.0f km/h: slowest %.0f km/h, health %.2f, z %.1f, on top %s" % [
+			id, h, int(c[2]), v0 * 3.6, min_sp * 3.6, car.health, car.global_position.z, on_top])
+		t.check(on_top and car.global_position.z < -14.0, "%s climbs the %.2f m ledge" % [id, h])
+		t.check(car.health > 0.97 and hits[0] < 2.0, "%s takes no crash damage from the ledge" % id)
+		t.check(min_sp > v0 * 0.6, "%s keeps its speed over the ledge" % id)
+		t.check(car.global_basis.y.dot(Vector3.UP) > 0.9, "%s stays upright" % id)
+		car.queue_free()
+		wall.queue_free()
+		await DriveBench.frames(get_tree(), 2)

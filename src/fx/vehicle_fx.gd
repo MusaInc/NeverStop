@@ -208,10 +208,12 @@ func _car_fx(c: Car, dt: float) -> void:
 			continue
 		var p := c.wheel_contact_point(i)
 		if slip > 0.35 and sp > 4.0:
-			if _rng.randf() < slip * dt * 40.0:
-				var v := -c.linear_velocity * 0.12 + Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.5, 1.6), _rng.randf_range(-1, 1))
-				var g := _rng.randf_range(0.72, 0.86)
-				smoke.emit(p + Vector3.UP * 0.2, v, _rng.randf_range(1.2, 2.2), 0.7, 3.4 + slip * 2.0, Color(g, g, g, 0.32 * slip))
+			if _rng.randf() < slip * dt * 30.0:
+				# Low and wide, hugging the road: a drift trail you can see
+				# past, not a wall between the camera and the car.
+				var v := -c.linear_velocity * 0.1 + Vector3(_rng.randf_range(-1.4, 1.4), _rng.randf_range(0.3, 1.0), _rng.randf_range(-1.4, 1.4))
+				var g := _rng.randf_range(0.8, 0.9)
+				smoke.emit(p + Vector3.UP * 0.25, v, _rng.randf_range(1.0, 1.7), 0.6, 2.4 + slip * 1.2, Color(g, g * 0.99, g * 0.97, 0.24 * slip))
 			_skid(id * 4 + i, p, c.linear_velocity, slip)
 		else:
 			_skid_last.erase(id * 4 + i)
@@ -220,11 +222,13 @@ func _car_fx(c: Car, dt: float) -> void:
 				0.35, 0.08, 0.02, Color(1.0, 0.7, 0.3, 1.0))
 	# Engine smoke / fire.
 	var hood := xf * Vector3(0, (c.spec["size"] as Vector3).y * 0.75, -(c.spec["size"] as Vector3).z * 0.32)
-	if c.health < 0.55 and _rng.randf() < dt * (6.0 + (0.55 - c.health) * 40.0):
+	if c.health < 0.55 and _rng.randf() < dt * (5.0 + (0.55 - c.health) * 26.0):
+		# Thin wisps at first, darker as the engine gets worse; they stream
+		# back with the car's speed instead of hanging in front of the camera.
 		var dark := clampf(0.55 - c.health, 0.0, 0.5)
-		var g2 := 0.55 - dark
-		smoke.emit(hood, Vector3(_rng.randf_range(-0.4, 0.4), _rng.randf_range(1.2, 2.4), _rng.randf_range(-0.4, 0.4)) - c.linear_velocity * 0.05,
-			_rng.randf_range(1.4, 2.6), 0.5, 2.6, Color(g2, g2, g2 * 1.02, 0.4 + dark))
+		var g2 := 0.5 - dark * 0.7
+		smoke.emit(hood, Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(1.0, 2.0), _rng.randf_range(-0.3, 0.3)) - c.linear_velocity * 0.25,
+			_rng.randf_range(1.0, 1.8), 0.35, 1.6 + dark * 1.2, Color(g2, g2, g2 * 1.03, 0.2 + dark * 0.6))
 	if c.health < 0.2 and _rng.randf() < dt * 30.0:
 		fire.emit(hood + Vector3(_rng.randf_range(-0.3, 0.3), 0, _rng.randf_range(-0.3, 0.3)), Vector3(0, _rng.randf_range(1.5, 3.0), 0),
 			_rng.randf_range(0.3, 0.6), 0.5, 0.15, Color(1.0, _rng.randf_range(0.35, 0.6), 0.1, 1.0))
@@ -262,7 +266,7 @@ func impact(at: Vector3, normal: Vector3, strength: float, paint: Color) -> void
 		sparks.emit(at, v, _rng.randf_range(0.25, 0.6), 0.12, 0.03, Color(1.0, _rng.randf_range(0.6, 0.85), 0.35, 1.0))
 	for i in int(clampf(strength * 0.3, 1.0, 8.0)):
 		smoke.emit(at + Vector3(_rng.randf_range(-0.5, 0.5), 0.2, _rng.randf_range(-0.5, 0.5)),
-			Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.5, 1.5), _rng.randf_range(-1, 1)), 1.2, 0.8, 2.8, Color(0.5, 0.48, 0.45, 0.35))
+			Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.5, 1.5), _rng.randf_range(-1, 1)), 1.0, 0.7, 2.2, Color(0.55, 0.53, 0.5, 0.28))
 	if strength > 10.0:
 		for i in int(clampf((strength - 8.0) * 0.4, 1.0, 6.0)):
 			_chunk(at, normal, strength, paint if i % 2 == 0 else Color(0.05, 0.05, 0.06))

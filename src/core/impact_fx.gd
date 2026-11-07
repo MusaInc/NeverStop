@@ -61,7 +61,7 @@ static func dust(parent: Node, at: Vector3, strength: float) -> void:
 	curve.add_point(Vector2(1.0, 1.4))
 	p.scale_amount_curve = curve
 	var grad := Gradient.new()
-	grad.set_color(0, Color(0.78, 0.74, 0.68, 0.55))
+	grad.set_color(0, Color(0.78, 0.74, 0.68, 0.42))
 	grad.set_color(1, Color(0.78, 0.74, 0.68, 0.0))
 	p.color_ramp = grad
 	var mesh := QuadMesh.new()
@@ -72,6 +72,10 @@ static func dust(parent: Node, at: Vector3, strength: float) -> void:
 	mat.vertex_color_use_as_albedo = true
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	mat.albedo_texture = _soft_dot()
+	# Fade out as it reaches the camera: dust must not blind the driver.
+	mat.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_ALPHA
+	mat.distance_fade_min_distance = 1.2
+	mat.distance_fade_max_distance = 6.0
 	mesh.material = mat
 	p.mesh = mesh
 	parent.add_child(p)

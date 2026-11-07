@@ -1436,15 +1436,21 @@ def wheel(style):
                 lug.rotation_euler = (a - math.pi / 2, 0, 0)
                 parts.append(lug)
     rim_r = 0.7 if style != "offroad" else 0.62
-    face_m = dark_m if style in ("blade", "mesh", "turbine") else m["trim"]
-    face = xcyl("rimface", rim_r, 0.06, (0.08, 0, 0), face_m, 32)
+    wall_m = mat("tyre_wall", (0.07, 0.07, 0.07), 0.8)
+    disc_m = mat("disc", (0.32, 0.32, 0.33), 0.45, 0.8)
+    # Sidewall: a raised band so the tyre reads as a tyre, not a black disc.
+    for sx in (-1, 1):
+        parts.append(annulus("sidewall", rim_r + 0.04, 0.9, sx * 0.235, wall_m))
+    # Deep, dark wheel well behind the spokes: gaps read as depth, not grey.
+    face = xcyl("rimface", rim_r * 0.98, 0.04, (-0.14, 0, 0), m["liner"], 32)
     parts.append(face)
     lip = cyl("lip", rim_r, 0.035, (0, 0, 0), m["rim"], 32, r2=rim_r * 0.95)
     lip.rotation_euler = (0, math.pi / 2, 0)
     lip.location = (0.15, 0, 0)
     parts.append(lip)
-    # Brake disc behind the spokes.
-    parts.append(xcyl("disc", rim_r * 0.82, 0.03, (0.04, 0, 0), m["chrome"], 28))
+    # Brake disc behind the spokes (the caliper is added in Godot: it mustn't spin).
+    parts.append(xcyl("disc", rim_r * 0.8, 0.04, (-0.02, 0, 0), disc_m, 28))
+    parts.append(xcyl("disc_hat", rim_r * 0.36, 0.05, (0.0, 0, 0), m["rim_dark"] if "rim_dark" in m else dark_m, 20))
     spokes = {"five": 5, "split": 10, "blade": 7, "mesh": 16, "steel": 0, "turbine": 12, "offroad": 6, "deep": 6}[style]
     for i in range(spokes):
         a = i * 2 * math.pi / spokes
@@ -1473,6 +1479,19 @@ def wheel(style):
     parts.append(xcyl("hub_cap", 0.08, 0.02, (0.2, 0, 0), m["chrome"], 12))
     ob = kit.join("wheel", parts)
     kit.export("wheel_%s.glb" % style, [ob])
+
+
+def annulus(name, r0, r1, x, material, segs=32):
+    """A flat ring in the YZ plane at x, facing +X (or -X when x < 0)."""
+    bm = bmesh.new()
+    inner = [bm.verts.new((x, r0 * math.cos(a), r0 * math.sin(a))) for a in (i * 2 * math.pi / segs for i in range(segs))]
+    outer = [bm.verts.new((x, r1 * math.cos(a), r1 * math.sin(a))) for a in (i * 2 * math.pi / segs for i in range(segs))]
+    for i in range(segs):
+        j = (i + 1) % segs
+        f = bm.faces.new((inner[i], inner[j], outer[j], outer[i]))
+        if (f.normal.x > 0) != (x > 0):
+            f.normal_flip()
+    return kit.new_obj(name, bm, material)
 
 
 def preview(path, names):

@@ -250,6 +250,7 @@ func spawn_player(id: String) -> void:
 	player_visual = CarVisual.new()
 	player.add_child(player_visual)
 	player_visual.setup(player)
+	player_visual.enable_headlights(Settings.quality == Settings.Quality.HIGH)
 	player.visual = player_visual
 	player.place(spawn_point())
 	input.car = player

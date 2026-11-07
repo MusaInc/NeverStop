@@ -28,6 +28,10 @@ const SLIP_PEAK := deg_to_rad(9.0)
 const RAY_MASK := 1 | (1 << 3)          # buildings/structures + street surface
 const BODY_LAYER := 1 << 2              # vehicles
 const BODY_MASK := 1 | (1 << 2) | (1 << 3) | (1 << 6) | (1 << 7)  # world, vehicles, street, trains, solid props
+## Kerbs are 0.15 m; the hull floor stays above this so they go under the car.
+const KERB_CLEAR := 0.3
+## Ledges up to this tall (above the ground under the car) are climbed, not crashed into.
+const STEP_MAX := 0.62
 
 var spec: Dictionary
 ## Controls, set every frame by the driver (player input or an AI brain).
@@ -60,6 +64,7 @@ var steer_angle := 0.0
 var last_impact_time := -10.0
 var grip_loss := 0.0           # seconds of reduced grip after a heavy hit
 var puncture := 0.0            # 1 = tyres shredded by a spike strip
+var climbed_kerb := 0.0        # > 0 just after hopping a kerb/ledge (camera, audio)
 
 # wheel layout (local, at the suspension top), filled from spec
 var _wheel_pos: Array[Vector3] = []
@@ -75,6 +80,7 @@ var _was_air := false
 var _air_peak_fall := 0.0
 var _gear_timer := 0.0
 var _impacts: Array = []       # filled in _integrate_forces, handled in _physics_process
+var _steps: Array = []         # low contacts with the world: [at, normal, dv]
 var _time := 0.0
 var visual: Node3D             # CarVisual (optional)
 
@@ -110,11 +116,21 @@ func setup(p_spec: Dictionary, p_role := "player") -> void:
 	var y1 := y0 + size.y * 0.55
 	var y2 := y0 + size.y
 	var ch := 0.28
+	# The hull's floor sits above kerb height and its nose and tail are
+	# wedged, so kerbs and low ledges go under the car (the wheels ride up
+	# them) and anything a little taller is ramped over instead of stopping
+	# the car dead. The drawn body hangs a few cm lower; nobody can tell.
+	var yb := maxf(y0, KERB_CLEAR)
+	var wedge := 0.34
 	var pts := PackedVector3Array()
 	for z in [-hl, hl]:
 		var zi := (z as float) - signf(z) * ch
-		pts.append_array([Vector3(-hw, y0, zi), Vector3(hw, y0, zi), Vector3(-hw + ch, y0, z), Vector3(hw - ch, y0, z),
+		var zb := (z as float) - signf(z) * (ch + wedge)
+		pts.append_array([Vector3(-hw + 0.1, yb, zb), Vector3(hw - 0.1, yb, zb),
 			Vector3(-hw, y1, zi), Vector3(hw, y1, zi), Vector3(-hw + ch, y1, z), Vector3(hw - ch, y1, z)])
+	# Lower side line, a little in from the sides (kerbs scraped sideways in a drift).
+	for z in [-hl * 0.55, hl * 0.55]:
+		pts.append_array([Vector3(-hw, yb + 0.12, z), Vector3(hw, yb + 0.12, z)])
 	var cab_f := -hl * 0.35
 	var cab_r := hl * 0.7
 	for z in [cab_f, cab_r]:
@@ -206,6 +222,10 @@ func _physics_process(dt: float) -> void:
 	var pull: float = (dmg["left"] - dmg["right"]) * 0.12 + dmg["front"] * 0.05 * sin(_time * 0.7)
 	var target_steer := clampf(str_in + pull, -1.0, 1.0) * max_steer_angle()
 	var steer_rate := deg_to_rad(spec.get("steer_rate", 220.0))
+	# Unwinding (back to centre or across to counter-steer) is quicker than
+	# winding on: catching a slide should never feel laggy.
+	if absf(target_steer) < absf(steer_angle) or signf(target_steer) != signf(steer_angle):
+		steer_rate *= 1.7
 	steer_angle = move_toward(steer_angle, target_steer, steer_rate * dt)
 
 	# Reverse: brake held at (near) standstill.
@@ -267,7 +287,9 @@ func _physics_process(dt: float) -> void:
 		var origin := xf * _wheel_pos[i]
 		var dist := (origin - p).dot(up)
 		var comp := clampf(rest + wr - dist, 0.0, rest + 0.15)
-		var comp_v := (comp - _comp[i]) / dt
+		# Rolling onto a kerb compresses the spring 15 cm in one tick; an
+		# unclamped damper turns that into a launch. Cap the damper speed.
+		var comp_v := clampf((comp - _comp[i]) / dt, -3.0, 3.0)
 		_comp[i] = comp
 		wheel_comp_visual[i] = minf(comp, rest)
 		var fz := maxf(0.0, k * comp + c * comp_v)
@@ -395,8 +417,10 @@ func _physics_process(dt: float) -> void:
 				apply_central_force(vel.normalized() * mass * spec.get("drift_push", 1.6) * clampf(absf(beta), 0.0, 0.8))
 		# Centred steering while gripping: hold the heading firmly (planted
 		# on the straights; also cancels solver drift).
-		if absf(str_in) < 0.04 and not drifting and not handbrake:
-			assist = maxf(assist, 1.0)
+		# (Blended in, so a touch of steering doesn't drop the car off a cliff
+		# from fully held to loose.)
+		if not drifting and not handbrake:
+			assist = lerpf(1.0, assist, smoothstep(0.03, 0.35, absf(str_in)))
 		var dyaw := (want - yaw_rate)
 		apply_torque(up * clampf(dyaw, -3.0, 3.0) * inertia.y * assist * 10.0)
 		# Damp roll/pitch wobble.
@@ -428,6 +452,8 @@ func _physics_process(dt: float) -> void:
 	else:
 		stuck_time = maxf(0.0, stuck_time - dt * 2.0)
 
+	climbed_kerb = maxf(0.0, climbed_kerb - dt)
+	_handle_steps()
 	_handle_impacts()
 	scraping = move_toward(scraping, 0.0, dt * 4.0)
 	_prev_vel = vel
@@ -459,18 +485,80 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 
 func _integrate(state: PhysicsDirectBodyState3D) -> void:
+	var up := state.transform.basis.y
+	var base := state.transform.origin
 	for i in state.get_contact_count():
 		var imp: Vector3 = state.get_contact_impulse(i)
 		var j := imp.length()
+		var n := state.get_contact_local_normal(i)
+		var at := state.get_contact_local_position(i)
+		var other := state.get_contact_collider_object(i)
+		# Low on the hull against the world: maybe a kerb or ledge to climb
+		# (checked against the obstacle's real height in _handle_impacts).
+		if j > mass * 0.05 and not (other is Car) and (at - base).dot(up) < STEP_MAX + 0.15 \
+				and n.dot(Vector3.UP) < 0.75:
+			_steps.append([at, n, j / mass])
+			continue
 		if j < mass * 1.2:
 			if j > mass * 0.15:
 				scraping = minf(1.0, scraping + 0.25)
 			continue
-		var n := state.get_contact_local_normal(i)
 		# Ground contacts under the wheels aren't impacts.
 		if n.dot(state.transform.basis.y) > 0.75:
 			continue
-		_impacts.append([j / mass, state.get_contact_local_position(i), n, state.get_contact_collider_object(i)])
+		_impacts.append([j / mass, at, n, other])
+
+
+## Kerbs and low ledges: if what we touched is short enough, hop the car up
+## onto it and give back the speed the contact took; otherwise it's a wall
+## and goes through the normal impact path.
+func _handle_steps() -> void:
+	if _steps.is_empty():
+		return
+	var steps := _steps
+	_steps = []
+	if disabled or wheels_on_ground < 2:
+		for s in steps:
+			if s[2] > 1.2:
+				_impacts.append([s[2], s[0], s[1], null])
+		return
+	var space := get_world_3d().direct_space_state
+	var ground_y := global_position.y
+	var best_top := -1.0
+	for s in steps:
+		var at: Vector3 = s[0]
+		var n: Vector3 = s[1]
+		var nh := Vector3(n.x, 0.0, n.z)
+		if nh.length_squared() < 0.01:
+			continue
+		nh = nh.normalized()
+		# A little way into the obstacle (the normal points out of it, at us).
+		var probe := at - nh * 0.25
+		var q := PhysicsRayQueryParameters3D.create(
+			Vector3(probe.x, ground_y + STEP_MAX + 0.4, probe.z), Vector3(probe.x, ground_y - 0.3, probe.z), RAY_MASK | (1 << 7))
+		q.exclude = [get_rid()]
+		q.hit_from_inside = true  # starting inside a building = a wall, not a step
+		var hit := space.intersect_ray(q)
+		var top := INF
+		if hit and (hit["normal"] as Vector3).y > 0.6:
+			top = (hit["position"] as Vector3).y - ground_y
+		if top <= STEP_MAX:
+			best_top = maxf(best_top, top)
+		elif s[2] > 1.2:
+			_impacts.append([s[2], s[0], s[1], null])  # a wall after all
+	if best_top < 0.0:
+		return
+	# Climb: enough upward speed to clear the ledge, and keep (most of) the
+	# speed we had before touching it.
+	var v := linear_velocity
+	var pv := _prev_vel
+	var h := Vector3(v.x, 0.0, v.z)
+	var ph := Vector3(pv.x, 0.0, pv.z)
+	if ph.length() > h.length():
+		h = h.lerp(ph * 0.96, 0.85)
+	var vy := maxf(v.y, sqrt(2.0 * GRAVITY * (best_top + 0.1)) * clampf(ph.length() / 4.0, 0.4, 1.0))
+	linear_velocity = Vector3(h.x, vy, h.z)
+	climbed_kerb = 0.25
 
 
 func _handle_impacts() -> void:
@@ -531,3 +619,4 @@ func place(xf: Transform3D, vel := Vector3.ZERO) -> void:
 	stuck_time = 0.0
 	upside_time = 0.0
 	_impacts.clear()
+	_steps.clear()

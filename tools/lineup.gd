@@ -39,6 +39,7 @@ func _run() -> void:
 		car.add_child(v)
 		v.setup(car)
 		car.visual = v
+		v.enable_headlights()
 		if id.begins_with("police"):
 			v.set_siren(true)
 		for w in 4:

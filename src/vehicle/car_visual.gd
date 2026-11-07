@@ -9,15 +9,29 @@ extends Node3D
 
 const DIR := "res://assets/vehicles/"
 const BEACON_SHADER := preload("res://src/vehicle/beacon.gdshader")
+const PAINT_SHADER := preload("res://src/vehicle/car_paint.gdshader")
+const GLASS_SHADER := preload("res://src/vehicle/car_glass.gdshader")
+const FLARE_SHADER := preload("res://src/vehicle/lamp_flare.gdshader")
+const BEAM_SHADER := preload("res://src/vehicle/head_beam.gdshader")
+const BEAM_LEN := 20.0
 
 static var _mesh_cache := {}
 static var _mat_cache := {}
+static var _lamp_cache := {}
+static var _flare_mat: ShaderMaterial
+static var _beam_mat: ShaderMaterial
+## 0 day .. 1 night (street lamps on). Set by Atmosphere every frame.
+static var lamps := 0.0
 
 var car: Car
 var body: MeshInstance3D
 var wheels: Array[Node3D] = []      # steer pivots
 var _spins: Array[Node3D] = []      # spin nodes under them
-var paint_mat: StandardMaterial3D
+var paint_mat: ShaderMaterial
+var flares: MeshInstance3D
+var head_lights: Array[SpotLight3D] = []
+var beams: Array[MeshInstance3D] = []
+var lamp_pos := {}                  # "head"/"tail" -> Array[Vector3] (local, one per side)
 var tail_mat: StandardMaterial3D
 var head_mat: StandardMaterial3D
 var beacon_mat: ShaderMaterial
@@ -52,20 +66,37 @@ static func shared_mat(name: String) -> Material:
 	if _mat_cache.has(name):
 		return _mat_cache[name]
 	var m := StandardMaterial3D.new()
+	if name == "glass":
+		var g := ShaderMaterial.new()
+		g.shader = GLASS_SHADER
+		_mat_cache[name] = g
+		return g
 	match name:
-		"glass":
-			m.albedo_color = Color(0.03, 0.035, 0.045)
-			m.metallic = 0.7
-			m.roughness = 0.06
-			m.metallic_specular = 0.9
 		"trim", "liner", "grille":
 			m.albedo_color = Color(0.035, 0.035, 0.04) if name != "liner" else Color(0.015, 0.015, 0.015)
 			m.roughness = 0.55 if name == "trim" else 0.85
 			m.metallic = 0.2 if name == "grille" else 0.0
-		"chrome", "rim":
+		"chrome":
 			m.albedo_color = Color(0.72, 0.73, 0.76)
 			m.metallic = 1.0
 			m.roughness = 0.22
+		"rim":
+			# Bright machined alloy: less mirror than chrome, so spokes read
+			# against the dark wheel well instead of turning sky-grey.
+			m.albedo_color = Color(0.8, 0.81, 0.83)
+			m.metallic = 0.65
+			m.roughness = 0.3
+		"tyre_wall":
+			m.albedo_color = Color(0.085, 0.085, 0.09)
+			m.roughness = 0.75
+		"disc":
+			m.albedo_color = Color(0.35, 0.35, 0.36)
+			m.metallic = 0.8
+			m.roughness = 0.45
+		"caliper":
+			m.albedo_color = Color(0.75, 0.08, 0.05)
+			m.roughness = 0.35
+			m.metallic = 0.2
 		"rim_dark":
 			m.albedo_color = Color(0.09, 0.09, 0.1)
 			m.metallic = 0.8
@@ -118,13 +149,9 @@ func setup(p_car: Car) -> void:
 	add_child(body)
 	var mesh := load_mesh(spec["body"])
 	body.mesh = mesh
-	paint_mat = StandardMaterial3D.new()
-	paint_mat.albedo_color = spec["paint"]
-	paint_mat.metallic = 0.5
-	paint_mat.roughness = 0.3
-	paint_mat.clearcoat_enabled = true
-	paint_mat.clearcoat = 0.6
-	paint_mat.clearcoat_roughness = 0.15
+	paint_mat = ShaderMaterial.new()
+	paint_mat.shader = PAINT_SHADER
+	paint_mat.set_shader_parameter("base_color", spec["paint"])
 	var paint2 := StandardMaterial3D.new()
 	paint2.albedo_color = spec.get("paint2", Color(0.9, 0.9, 0.9))
 	paint2.roughness = 0.35
@@ -177,14 +204,163 @@ func setup(p_car: Car) -> void:
 		if i % 2 == 0:
 			wm.rotation.y = PI
 		spin.add_child(wm)
+		# Brake caliper: on the steering pivot, not the spinning wheel.
+		var cal := MeshInstance3D.new()
+		cal.name = "Caliper"
+		cal.mesh = _caliper_mesh()
+		cal.material_override = shared_mat("caliper") if spec.get("caliper", true) else shared_mat("trim")
+		var sx := -1.0 if i % 2 == 0 else 1.0
+		var rr := wr * 0.53
+		# Behind the axle (front wheels) / ahead of it (rear), at about 10 o'clock.
+		var ang := deg_to_rad(35.0)
+		var zs := 1.0 if i < 2 else -1.0
+		cal.position = Vector3(sx * float(spec.get("tyre_w", 0.26)) * 0.03, rr * cos(ang), zs * rr * sin(ang))
+		cal.rotation.x = -zs * ang
+		cal.scale = Vector3.ONE * wr / 0.33
+		pivot.add_child(cal)
 		wheels.append(pivot)
 		_spins.append(spin)
 	if beacon_mat:
 		beacon_mat.set_shader_parameter("phase", randf())
+	lamp_pos = lamp_spots(spec["body"], mesh)
+	_make_flares()
+
+
+static var _cal_mesh: BoxMesh
+static func _caliper_mesh() -> Mesh:
+	if _cal_mesh == null:
+		_cal_mesh = BoxMesh.new()
+		_cal_mesh.size = Vector3(0.07, 0.07, 0.15)
+	return _cal_mesh
 
 
 func set_paint(c: Color) -> void:
-	paint_mat.albedo_color = c
+	paint_mat.set_shader_parameter("base_color", c)
+
+
+## Where the head and tail lamps are (body-local, one point per side), read
+## once per body from the vertices of its lamp_head / lamp_tail surfaces.
+static func lamp_spots(body_name: String, mesh: Mesh) -> Dictionary:
+	if _lamp_cache.has(body_name):
+		return _lamp_cache[body_name]
+	var out := {"head": [], "tail": []}
+	if mesh:
+		for i in mesh.get_surface_count():
+			var src := mesh.surface_get_material(i)
+			var n := src.resource_name if src else ""
+			var key := "head" if n == "lamp_head" else ("tail" if n == "lamp_tail" else "")
+			if key == "":
+				continue
+			var v: PackedVector3Array = mesh.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]
+			for side in [-1.0, 1.0]:
+				var sum := Vector3.ZERO
+				var cnt := 0
+				var end := INF if key == "head" else -INF
+				for q in v:
+					if q.x * side > 0.05:
+						sum += q
+						cnt += 1
+						end = minf(end, q.z) if key == "head" else maxf(end, q.z)
+				if cnt > 0:
+					var c := sum / cnt
+					out[key].append(Vector3(c.x, c.y, end))
+	_lamp_cache[body_name] = out
+	return out
+
+
+## Night glows on every lamp: one mesh, one draw call (see lamp_flare.gdshader).
+func _make_flares() -> void:
+	if _flare_mat == null:
+		_flare_mat = ShaderMaterial.new()
+		_flare_mat.shader = FLARE_SHADER
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	var idx := PackedInt32Array()
+	var lamps_list := []
+	for p in lamp_pos["head"]:
+		lamps_list.append([p, Vector3.FORWARD, Color(1.0, 0.93, 0.8, 1.0), 1.15])
+	for p in lamp_pos["tail"]:
+		lamps_list.append([p, Vector3.BACK, Color(1.0, 0.08, 0.05, 0.55), 0.7])
+	if lamps_list.is_empty():
+		return
+	for l in lamps_list:
+		var b := verts.size()
+		var h: float = l[3] * 0.5
+		for c in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+			verts.append(l[0])
+			norms.append(l[1])
+			cols.append(l[2])
+			uvs.append((c + Vector2.ONE) * 0.5)
+			uv2s.append(c * h)
+		idx.append_array([b, b + 1, b + 2, b, b + 2, b + 3])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = norms
+	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_TEX_UV] = uvs
+	arr[Mesh.ARRAY_TEX_UV2] = uv2s
+	arr[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	am.custom_aabb = AABB(Vector3(-3, -2, -5), Vector3(6, 5, 10))
+	flares = MeshInstance3D.new()
+	flares.name = "LampGlow"
+	flares.mesh = am
+	flares.material_override = _flare_mat
+	flares.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(flares)
+
+
+## Real headlights (the player's car): two spotlights that light the road
+## ahead at night, plus a faint visible beam in the air. Off by day.
+func enable_headlights(shadows := false) -> void:
+	if not head_lights.is_empty() or lamp_pos["head"].is_empty():
+		return
+	if _beam_mat == null:
+		_beam_mat = ShaderMaterial.new()
+		_beam_mat.shader = BEAM_SHADER
+		_beam_mat.set_shader_parameter("height", BEAM_LEN)
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.12
+	cone.bottom_radius = 3.2
+	cone.height = BEAM_LEN
+	cone.radial_segments = 16
+	cone.rings = 1
+	cone.cap_top = false
+	cone.cap_bottom = false
+	for p: Vector3 in lamp_pos["head"]:
+		var l := SpotLight3D.new()
+		l.name = "Headlight"
+		l.light_color = Color(1.0, 0.95, 0.86)
+		l.spot_range = 75.0
+		l.spot_angle = 24.0
+		l.spot_angle_attenuation = 1.8
+		l.spot_attenuation = 0.75
+		l.light_energy = 0.0
+		l.light_specular = 0.6
+		l.shadow_enabled = shadows
+		l.position = p + Vector3(0, 0, -0.1)
+		# A touch down and a touch out: lights the lane and the kerbs.
+		l.rotation = Vector3(deg_to_rad(-3.5), -signf(p.x) * deg_to_rad(3.0), 0.0)
+		l.visible = false
+		add_child(l)
+		head_lights.append(l)
+		var bm := MeshInstance3D.new()
+		bm.name = "Beam"
+		bm.mesh = cone
+		bm.material_override = _beam_mat
+		bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Narrow end at the lamp, opening forward, flattened (stays off the road).
+		bm.transform = Transform3D(Basis(Vector3.RIGHT, PI * 0.5).scaled(Vector3(1.0, 1.0, 0.22)),
+			p + Vector3(0, 0, -BEAM_LEN * 0.5 - 0.1))
+		bm.rotation.y = -signf(p.x) * deg_to_rad(3.0)
+		bm.visible = false
+		add_child(bm)
+		beams.append(bm)
 
 
 func set_siren(on: bool) -> void:
@@ -229,7 +405,15 @@ func _process(dt: float) -> void:
 		_spins[i].rotation.x = -car.wheel_spin[i]
 	# Brake lights (and a dim glow when lit at night).
 	var braking := car.brake > 0.1 and car.forward_speed > 0.5
-	tail_mat.emission_energy_multiplier = 3.2 if braking or car.disabled else 0.7
+	tail_mat.emission_energy_multiplier = (3.2 if braking or car.disabled else 0.7) + lamps * 1.6
+	head_mat.emission_energy_multiplier = 1.2 + lamps * 5.0
+	if not head_lights.is_empty():
+		var on := lamps > 0.05 and not car.disabled
+		for l in head_lights:
+			l.visible = on
+			l.light_energy = 11.0 * lamps
+		for b in beams:
+			b.visible = on
 	if beacon_light_a and beacon_light_a.visible:
 		var ph := fmod(_t * 2.6, 1.0)
 		var a := 1.0 if ph < 0.5 else 0.0
@@ -240,10 +424,7 @@ func _process(dt: float) -> void:
 	var d := 1.0 - car.health
 	if absf(d - dirt) > 0.02:
 		dirt = d
-		var base: Color = spec.get("paint_now", spec["paint"])
-		paint_mat.albedo_color = base.lerp(Color(0.08, 0.07, 0.06), d * 0.45)
-		paint_mat.roughness = lerpf(0.3, 0.75, d)
-		paint_mat.clearcoat = lerpf(0.6, 0.0, d)
+		paint_mat.set_shader_parameter("dirt", d)
 
 
 ## Dents the body around `world_at`, pushing along `dir` (world), by
