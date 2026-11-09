@@ -1,6 +1,9 @@
-# Builds NEVER STOP for iPhone on a GitHub-hosted Mac and uploads it to
-# TestFlight. Run it from the Actions tab (Run workflow) – it never runs on
-# its own. See docs/IOS_BUILD.md ("TestFlight without a Mac").
+# Builds NEVER STOP for iPhone and uploads it to TestFlight. Run it from the
+# Actions tab (Run workflow) – it never runs on its own.
+#
+# Cost: only the `build` job runs on a Mac (export + archive + upload,
+# ~2-3 min). The checks before it and the wait for Apple's processing after
+# it (often 15-20 min) run on Linux, which GitHub bills at a tenth of macOS.
 #
 # Repository secrets (Settings → Secrets and variables → Actions):
 #   APPLE_TEAM_ID         10-character Apple Developer team ID
@@ -32,48 +35,12 @@ defaults:
     shell: bash -eo pipefail {0}  # a failing xcodebuild must fail the step, even piped into tail
 
 jobs:
-  testflight:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
-    timeout-minutes: 60
+  # Cheap Linux check first: a missing app record or a too-low version
+  # fails here, before any Mac time is spent.
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Select Xcode 26 (App Store Connect rejects builds from older SDKs)
-        if: inputs.fix_build == ''
-        run: |
-          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
-          test -n "$xcode"
-          sudo xcode-select -s "$xcode/Contents/Developer"
-          xcodebuild -version
-
-      - name: Install Godot and export templates
-        if: inputs.fix_build == ''
-        run: |
-          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
-          unzip -q godot.zip
-          dest="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
-          mkdir -p "$dest"
-          unzip -q templates.tpz -d tpl
-          mv tpl/templates/* "$dest/"
-          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
-
-      - name: Export the Xcode project
-        if: inputs.fix_build == ''
-        env:
-          TEAM: ${{ secrets.APPLE_TEAM_ID }}
-          VERSION: ${{ inputs.version }}
-          BUILD: ${{ github.run_number }}
-        run: |
-          sed -i '' "s/^application\/app_store_team_id=.*/application\/app_store_team_id=\"$TEAM\"/" export_presets.cfg
-          sed -i '' "s/^application\/short_version=.*/application\/short_version=\"$VERSION\"/" export_presets.cfg
-          sed -i '' "s/^application\/version=.*/application\/version=\"$BUILD\"/" export_presets.cfg
-          mkdir -p build/ios
-          "$GODOT" --headless --import >/dev/null 2>&1 || true
-          "$GODOT" --headless --export-release "iOS" build/ios/NeverStop.ipa
-          test -d build/ios/NeverStop.xcodeproj
-
       - name: App Store Connect API key
         env:
           P8: ${{ secrets.ASC_KEY_P8 }}
@@ -135,6 +102,68 @@ jobs:
                   sys.exit(f"Version {os.environ['VERSION']} is lower than {top} already on TestFlight – testers would never get it. Use a higher version.")
           PY
 
+      - name: Remove the key (preflight)
+        if: always()
+        run: rm -rf "$HOME/private_keys"
+
+  # The only part that needs a Mac: export, archive, upload (~2-3 min).
+  # macOS minutes cost 10x Linux minutes on private repos, so nothing waits
+  # on Apple here any more (processing used to idle the Mac for ~20 min).
+  build:
+    needs: preflight
+    if: inputs.fix_build == ''
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 30
+    outputs:
+      build_number: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26 (App Store Connect rejects builds from older SDKs)
+        if: inputs.fix_build == ''
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          test -n "$xcode"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install Godot and export templates
+        if: inputs.fix_build == ''
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q godot.zip
+          dest="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest"
+          unzip -q templates.tpz -d tpl
+          mv tpl/templates/* "$dest/"
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+
+      - name: Export the Xcode project
+        if: inputs.fix_build == ''
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          sed -i '' "s/^application\/app_store_team_id=.*/application\/app_store_team_id=\"$TEAM\"/" export_presets.cfg
+          sed -i '' "s/^application\/short_version=.*/application\/short_version=\"$VERSION\"/" export_presets.cfg
+          sed -i '' "s/^application\/version=.*/application\/version=\"$BUILD\"/" export_presets.cfg
+          mkdir -p build/ios
+          "$GODOT" --headless --import >/dev/null 2>&1 || true
+          "$GODOT" --headless --export-release "iOS" build/ios/NeverStop.ipa
+          test -d build/ios/NeverStop.xcodeproj
+
+      - name: App Store Connect API key
+        env:
+          P8: ${{ secrets.ASC_KEY_P8 }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$P8" > "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+
       - name: Archive (unsigned; the export step signs in the cloud)
         if: inputs.fix_build == ''
         # Signing here made CI create a new "Apple Development" certificate on
@@ -175,6 +204,29 @@ jobs:
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" | tail -40
           echo "Uploaded build ${{ github.run_number }} – it appears in App Store Connect → TestFlight after processing (5–30 min)."
 
+      - name: Remove the key (build)
+        if: always()
+        run: rm -rf "$HOME/private_keys"
+
+  # Waiting for Apple's processing and making the build testable are plain
+  # API calls: a Linux runner does them for a tenth of the price.
+  testable:
+    needs: build
+    if: always() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.fix_build != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: App Store Connect API key
+        env:
+          P8: ${{ secrets.ASC_KEY_P8 }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$P8" > "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+
+      - name: Python libraries
+        run: python3 -m pip install --quiet --break-system-packages pyjwt cryptography
       - name: Wait for App Store Connect processing
         if: inputs.fix_build == ''
         # Polls the uploaded build until Apple finishes processing it, so the
