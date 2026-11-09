@@ -176,8 +176,13 @@ func _process(dt: float) -> void:
 	_t += dt
 	var cam := get_viewport().get_camera_3d()
 	var cp := cam.global_position if cam else Vector3.ZERO
-	for c: Car in cars:
-		if not is_instance_valid(c) or not c.visible or c.freeze:
+	for o in cars:
+		# (Untyped: a car freed this frame, e.g. the old player after a car
+		# switch, must be skipped, not assigned to a typed variable.)
+		if not is_instance_valid(o):
+			continue
+		var c := o as Car
+		if not c.visible or c.freeze:
 			continue
 		if c.global_position.distance_squared_to(cp) > 160.0 * 160.0:
 			continue

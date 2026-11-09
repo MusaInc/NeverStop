@@ -398,7 +398,87 @@ def music():
     write("music_intense", level(st(inten), -19), stereo=True)
 
 
+def music_extra():
+    """The menu theme (slow pad + bell arpeggio, 96 BPM) and the PEAK stem
+    for the chase: an arpeggiated lead, 16th hats and off-beat stabs at the
+    same 124 BPM / 16 bars / chord loop as the bed, so it layers on top from
+    heat 5."""
+    def st(x, d=0.012):
+        k = int(d * SR)
+        return np.stack([x, np.concatenate([x[-k:], x[:-k]])], 1)
+    # --- peak stem
+    bpm = 124
+    beat = 60 / bpm
+    bars = 16
+    n = int(bars * 4 * beat * SR)
+    roots = [55.0, 55.0, 49.0, 58.27] * 4
+    peak = np.zeros(n)
+    arp = [1, 1.5, 2, 2.378, 2, 1.5, 3, 2.378]  # root, fifth, octave, minor 10th...
+    for b in range(bars):
+        r = roots[b] * 4
+        for k in range(16):
+            s = int((b * 4 + k / 4) * beat * SR)
+            ln = int(beat / 4 * 0.9 * SR)
+            if s + ln > n:
+                continue
+            tk = np.arange(ln) / SR
+            f = r * arp[k % len(arp)]
+            sq = np.sign(np.sin(2 * np.pi * f * tk)) * 0.5 + (2 * ((tk * f * 1.003) % 1) - 1) * 0.5
+            peak[s:s + ln] += sq * np.exp(-tk * 14) * 0.16
+            hl = int(0.03 * SR)
+            if s + hl <= n:
+                peak[s:s + hl] += hp(noise(hl), 8000) * np.exp(-np.arange(hl) / (0.006 * SR)) * (0.12 if k % 2 else 0.07)
+        for k in range(4):  # off-beat chord stabs
+            s = int((b * 4 + k + 0.5) * beat * SR)
+            ln = int(0.18 * SR)
+            if s + ln > n:
+                continue
+            tk = np.arange(ln) / SR
+            ch = sum(2 * ((tk * roots[b] * m) % 1) - 1 for m in (4, 6, 4 * 1.189))
+            peak[s:s + ln] += lp(ch, 2600) * np.exp(-tk * 16) * 0.12
+    peak = lp(peak, 6000)
+    write("music_peak", level(st(peak), -21), stereo=True)
+    # --- menu theme
+    bpm = 96
+    beat = 60 / bpm
+    bars = 8
+    n = int(bars * 4 * beat * SR)
+    menu = np.zeros(n)
+    chords = [55.0, 43.65, 49.0, 41.2]  # A  F  G  E  (two bars each)
+    for b in range(bars):
+        r = chords[b // 2]
+        s, e = int(b * 4 * beat * SR), int((b + 1) * 4 * beat * SR)
+        tb = np.arange(e - s) / SR
+        pad = np.zeros(e - s)
+        for m in (2, 3, 4.0 * (1.26 if b // 2 in (1, 2) else 1.189)):
+            for det in (-0.3, 0.3):
+                pad += np.sin(2 * np.pi * (r * m + det) * tb) + 0.3 * (2 * ((tb * (r * m + det)) % 1) - 1)
+        pad *= np.minimum(1, tb / 0.8) * np.minimum(1, (tb[-1] - tb) / 0.8 + 0.01)
+        menu[s:e] += pad * 0.05
+        for k in range(8):  # bell arpeggio in 8ths
+            ps = s + int(k * beat / 2 * SR)
+            ln = int(beat * 1.5 * SR)
+            if ps + ln > n:
+                ln = n - ps
+            tk = np.arange(ln) / SR
+            f = r * 8 * [1, 1.5, 2, 1.5, 1.189 * 2, 2, 1.5, 1][k]
+            bell = np.sin(2 * np.pi * f * tk) + 0.4 * np.sin(2 * np.pi * f * 2.76 * tk) * np.exp(-tk * 6)
+            menu[ps:ps + ln] += bell * np.exp(-tk * 3.5) * 0.07
+        for k in range(4):  # soft sub pulse on the beat
+            ps = s + int(k * beat * SR)
+            ln = int(0.4 * SR)
+            if ps + ln <= n:
+                tk = np.arange(ln) / SR
+                menu[ps:ps + ln] += np.sin(2 * np.pi * r * tk) * np.exp(-tk * 7) * 0.3
+    menu = room(lp(menu, 5000), 0.35, 0.25)
+    write("music_menu", level(st(menu, 0.018), -21), stereo=True)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "music_extra":
+        music_extra()
+        print("MUSIC DONE")
+        sys.exit(0)
     engines()
     tyres()
     sirens()
@@ -406,4 +486,5 @@ if __name__ == "__main__":
     impacts()
     misc()
     music()
+    music_extra()
     print("SOUNDS DONE")

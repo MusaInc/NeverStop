@@ -29,22 +29,30 @@ static func font(weight := "bold") -> Font:
 	return _fonts[weight]
 
 
-## A slanted ink panel with a hairline edge (wide) or a rounded chip.
+## A rounded frosted panel with a hairline edge (the one shape of the UI).
 static func pill(ci: CanvasItem, rect: Rect2, col := PANEL) -> void:
-	if rect.size.x < rect.size.y * 1.6:
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = col
-		sb.set_corner_radius_all(int(rect.size.y * 0.3))
-		sb.anti_aliasing = true
-		ci.draw_style_box(sb, rect)
-		return
-	var k := minf(rect.size.y * 0.3, 12.0)
-	var p := rect.position
-	var e := rect.end
-	var pts := PackedVector2Array([Vector2(p.x + k, p.y), Vector2(e.x, p.y), Vector2(e.x - k, e.y), Vector2(p.x, e.y)])
-	ci.draw_colored_polygon(pts, col)
-	pts.append(pts[0])
-	ci.draw_polyline(pts, Color(WHITE, 0.08), 1.0, true)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.set_corner_radius_all(int(minf(rect.size.y * 0.5, 16.0)))
+	sb.border_color = Color(WHITE, 0.07)
+	sb.set_border_width_all(1)
+	sb.anti_aliasing = true
+	ci.draw_style_box(sb, rect)
+
+
+## Frosted glass card style (menus).
+static func glass(radius := 18, alpha := 0.62) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.08, 0.1, alpha)
+	sb.set_corner_radius_all(radius)
+	sb.border_color = Color(1, 1, 1, 0.08)
+	sb.set_border_width_all(1)
+	sb.anti_aliasing = true
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	return sb
 
 
 ## Draws text with a soft shadow for readability over the 3-D scene.

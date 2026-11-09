@@ -14,7 +14,17 @@ var player: Car
 var director: PursuitDirector
 var score: ScoreKeeper
 var minimap: Minimap
+var contracts: Contracts
 var touch_mode := false
+## First-run coach: one prompt at a time until the player has done it.
+var _coach: Array = []           # [text_touch, text_keys, kind, need]
+var _coach_i := -1
+var _coach_t := 0.0
+var _coach_hold := 0.0
+var _coach_steer_l := false
+var _coach_steer_r := false
+var _done_pop := ""
+var _done_pop_t := 0.0
 var _events: Array = []          # [text, points, chain, age]
 var _radio := ""
 var _radio_t := 0.0
@@ -56,6 +66,102 @@ func bind(p_game: Node, p_player: Car, p_director: PursuitDirector, p_score: Sco
 	director.spiked.connect(func(): _warning("TYRES SPIKED"); flash(UiStyle.RED))
 
 
+func contract_done(c: Dictionary) -> void:
+	_done_pop = "CONTRACT COMPLETE  +$%d" % int(c["cash"])
+	_done_pop_t = 2.0
+
+
+func start_coach(on: bool) -> void:
+	_coach.clear()
+	_coach_i = -1
+	if not on:
+		return
+	if Settings.accelerate != "auto":
+		_coach.append(["Hold GAS to drive", "Hold W / ↑ (or RT) to drive", "gas", 1.0])
+	_coach.append(["Slide your left thumb to steer", "Steer with A / D (or ← →)", "steer", 0.0])
+	_coach.append(["BRAKE to slow down · hold it when stopped to reverse", "S / ↓ to brake · hold it when stopped to reverse", "brake", 0.35])
+	_coach.append(["Hold DRIFT through a corner to slide", "Hold SPACE through a corner to drift", "drift", 0.5])
+	_coach.append(["They will catch you. Survive as long as you can.", "They will catch you. Survive as long as you can.", "wait", 4.0])
+	_coach.append(["Contracts (left) pay extra cash. Go!", "Contracts (left) pay extra cash. Go!", "wait", 4.0])
+	_coach_i = 0
+	_coach_t = 0.0
+	_coach_hold = 0.0
+	_coach_steer_l = false
+	_coach_steer_r = false
+
+
+func _coach_update(dt: float) -> void:
+	if _coach_i < 0 or _coach_i >= _coach.size() or player == null:
+		return
+	_coach_t += dt
+	var step: Array = _coach[_coach_i]
+	var ok := false
+	match step[2]:
+		"gas":
+			_coach_hold = _coach_hold + dt if player.throttle > 0.5 else 0.0
+			ok = _coach_hold >= float(step[3])
+		"steer":
+			if player.steer > 0.35:
+				_coach_steer_r = true
+			if player.steer < -0.35:
+				_coach_steer_l = true
+			ok = _coach_steer_l and _coach_steer_r
+		"brake":
+			_coach_hold = _coach_hold + dt if player.brake > 0.5 else 0.0
+			ok = _coach_hold >= float(step[3])
+		"drift":
+			_coach_hold = _coach_hold + dt if player.handbrake else 0.0
+			ok = _coach_hold >= float(step[3])
+		"wait":
+			ok = _coach_t >= float(step[3])
+	# Never nag: every prompt gives up after a while.
+	if ok or _coach_t > 25.0:
+		_coach_i += 1
+		_coach_t = 0.0
+		_coach_hold = 0.0
+		if _coach_i >= _coach.size():
+			_coach_i = -1
+			SaveData.data["tutorial_done"] = true
+			SaveData.save()
+
+
+func _draw_coach(vp: Vector2) -> void:
+	if _coach_i < 0 or _coach_i >= _coach.size():
+		return
+	var step: Array = _coach[_coach_i]
+	var t: String = step[0] if touch_mode else step[1]
+	var a := clampf(_coach_t * 3.0, 0.0, 1.0)
+	var size := 24
+	var w := UiStyle.text_width(t, size, "black")
+	var y := vp.y * 0.44
+	UiStyle.pill(self, Rect2(vp.x * 0.5 - w * 0.5 - 26, y - 34, w + 52, 48), Color(UiStyle.INK, 0.7 * a))
+	draw_rect(Rect2(vp.x * 0.5 - w * 0.5 - 26, y + 12, (w + 52) * float(_coach_i + 1) / _coach.size(), 3), Color(UiStyle.AMBER, a))
+	UiStyle.text(self, Vector2(vp.x * 0.5 - w * 0.5, y), t, size, Color(UiStyle.WHITE, a), "black")
+	if step[2] == "steer":
+		var l := "◀ " + ("✓" if _coach_steer_l else "·") + "      " + ("✓" if _coach_steer_r else "·") + " ▶"
+		var lw := UiStyle.text_width(l, 18, "black")
+		UiStyle.text(self, Vector2(vp.x * 0.5 - lw * 0.5, y + 40), l, 18, Color(UiStyle.AMBER, a), "black")
+
+
+func _draw_contracts(s: Rect2) -> void:
+	if contracts == null or not contracts.running or contracts.active.is_empty():
+		return
+	var x := s.position.x + (62.0 if touch_mode else 0.0)
+	var y := s.position.y + 112.0
+	UiStyle.text(self, Vector2(x, y), "CONTRACTS", 11, UiStyle.AMBER, "black")
+	y += 8.0
+	for c in contracts.active:
+		var f: float = c["flash"]
+		var r := Rect2(x - 6, y + 2, 214, 34)
+		UiStyle.pill(self, r, Color(UiStyle.AMBER, 0.35 * f) if f > 0.0 else Color(UiStyle.INK, 0.85 if Settings.high_contrast_hud else 0.42))
+		UiStyle.text(self, Vector2(x + 2, y + 19), str(c["label"]), 13, UiStyle.WHITE, "bold")
+		var k: float = c["progress"]
+		draw_rect(Rect2(x + 2, y + 26, 160, 4), Color(1, 1, 1, 0.15))
+		draw_rect(Rect2(x + 2, y + 26, 160 * k, 4), UiStyle.AMBER)
+		UiStyle.text(self, Vector2(x + 170, y + 31), "$%d" % int(c["cash"]), 11, UiStyle.DIM, "bold")
+		y += 39.0
+
+
 func flash(c: Color, amount := 0.35) -> void:
 	_flash = maxf(_flash, amount)
 	_flash_col = c
@@ -95,6 +201,9 @@ func _process(dt: float) -> void:
 	_radio_t -= dt
 	_warn_t -= dt
 	_flash = maxf(0.0, _flash - dt * 1.6)
+	_done_pop_t -= dt
+	if game and game.state == 1:  # PLAYING
+		_coach_update(dt)
 	_heat_pulse = maxf(0.0, _heat_pulse - dt * 0.8)
 	if score:
 		_shown_score = lerpf(_shown_score, score.score, 1.0 - exp(-10.0 * dt))
@@ -131,10 +240,24 @@ func _draw() -> void:
 	# Screen flash (damage, spike strip, bust).
 	if _flash > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, vp), Color(_flash_col, _flash * 0.35))
+	if Settings.high_contrast_hud:
+		# Solid backing behind every readout (bright skies, glare, low vision).
+		var hx := s.position.x + (62.0 if touch_mode else 0.0)
+		UiStyle.pill(self, Rect2(hx - 10, s.position.y - 4, 230, 104), Color(0, 0, 0, 0.72))
+		UiStyle.pill(self, Rect2(vp.x * 0.5 - 110, s.position.y - 2, 220, 46), Color(0, 0, 0, 0.72))
+		UiStyle.pill(self, Rect2(vp.x * 0.5 - 104, s.end.y - 92, 208, 96), Color(0, 0, 0, 0.72))
 	_draw_time_heat(s)
 	_draw_score(s, vp)
 	_draw_speed(s, vp)
 	_draw_bust(vp)
+	_draw_contracts(s)
+	_draw_coach(vp)
+	if _done_pop_t > 0.0:
+		var a3 := clampf(_done_pop_t * 2.0, 0.0, 1.0)
+		var w3 := UiStyle.text_width(_done_pop, 22, "black")
+		var y3 := vp.y * 0.66
+		UiStyle.pill(self, Rect2(vp.x * 0.5 - w3 * 0.5 - 20, y3 - 28, w3 + 40, 40), Color(UiStyle.AMBER, 0.9 * a3))
+		UiStyle.text(self, Vector2(vp.x * 0.5 - w3 * 0.5, y3), _done_pop, 22, Color(UiStyle.INK, a3), "black")
 	if _warn_t > 0.0:
 		var a := clampf(_warn_t * 2.0, 0.0, 1.0)
 		var w := UiStyle.text_width(_warn, 34, "black")
@@ -151,7 +274,7 @@ func _draw() -> void:
 
 
 func _draw_time_heat(s: Rect2) -> void:
-	var x := s.position.x + (54.0 if touch_mode else 0.0)
+	var x := s.position.x + (62.0 if touch_mode else 0.0)
 	var y := s.position.y
 	var t: float = score.time if score else 0.0
 	UiStyle.text(self, Vector2(x, y + 40), UiStyle.time_str(t), 42, UiStyle.WHITE, "black")

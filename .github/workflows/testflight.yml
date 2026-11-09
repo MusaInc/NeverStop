@@ -16,7 +16,7 @@ on:
     inputs:
       version:
         description: "Marketing version (CFBundleShortVersionString)"
-        default: "0.2.0"
+        default: "0.3.0"
       fix_build:
         description: "Only make an existing build testable (build number, e.g. 33) – skips building"
         default: ""

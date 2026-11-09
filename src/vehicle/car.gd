@@ -183,10 +183,18 @@ func reset_damage() -> void:
 	nitro_amount = 1.0
 
 
+## Full lock at this speed. Speed-sensitive the way a good arcade racer is:
+## at every speed full lock asks for (a touch more than) what the tyres can
+## actually deliver, so the whole stick/slider range does something and the
+## fronts never get thrown to a huge slip angle (the old curve saturated grip
+## at ~60 % input above 100 km/h, then snapped the nose in and overshot).
 func max_steer_angle() -> float:
-	var top: float = spec["top_speed"]
-	var t := clampf(absf(forward_speed) / top, 0.0, 1.0)
-	return lerpf(deg_to_rad(spec["steer_lock"]), deg_to_rad(spec["steer_fast"]), pow(t, 0.7))
+	var lock := deg_to_rad(spec["steer_lock"])
+	var fast := deg_to_rad(spec["steer_fast"])
+	var v := maxf(absf(forward_speed), 1.0)
+	var grip_yaw: float = spec["grip"] * GRAVITY * 1.1 / maxf(v, 4.0)
+	var ideal := atan(float(spec["wheelbase"]) * grip_yaw * 1.12 / v) + SLIP_PEAK * float(spec.get("steer_slip", 0.3))
+	return clampf(ideal, minf(fast, lock), lock)
 
 
 func _physics_process(dt: float) -> void:
@@ -221,7 +229,10 @@ func _physics_process(dt: float) -> void:
 	# Front-end damage pulls the steering (misalignment) – correctable.
 	var pull: float = (dmg["left"] - dmg["right"]) * 0.12 + dmg["front"] * 0.05 * sin(_time * 0.7)
 	var target_steer := clampf(str_in + pull, -1.0, 1.0) * max_steer_angle()
-	var steer_rate := deg_to_rad(spec.get("steer_rate", 220.0))
+	# Constant time from centre to full lock at any speed (~0.17 s, quicker
+	# on the sharper cars): fast enough to feel direct, slow enough that a
+	# flick at 150 km/h can't spike the yaw rate.
+	var steer_rate := max_steer_angle() / 0.17 * float(spec.get("steer_rate", 200.0)) / 200.0
 	# Unwinding (back to centre or across to counter-steer) is quicker than
 	# winding on: catching a slide should never feel laggy.
 	if absf(target_steer) < absf(steer_angle) or signf(target_steer) != signf(steer_angle):
@@ -409,7 +420,6 @@ func _physics_process(dt: float) -> void:
 			assist = spec.get("drift_assist", 0.55)
 			if absf(beta) > max_a:
 				# Past the limit: pull back toward it, hard.
-				want = (path - (signf(beta) * max_a - beta) * -5.0 * -1.0) * fs
 				want = (path + (beta - signf(beta) * max_a) * 5.0) * fs
 				assist = 1.0
 			# Keep momentum through a slide (arcade: drifting shouldn't kill speed).
@@ -421,6 +431,11 @@ func _physics_process(dt: float) -> void:
 		# from fully held to loose.)
 		if not drifting and not handbrake:
 			assist = lerpf(1.0, assist, smoothstep(0.03, 0.35, absf(str_in)))
+			# Stability control: rotating faster than the wheel asks for
+			# (the nose snapping in on a flick) is caught firmly; turning in
+			# is still left to the tyres.
+			if yaw_rate * want > 0.0 and absf(yaw_rate) > absf(want) + 0.02:
+				assist = maxf(assist, float(spec.get("stability", 0.9)))
 		var dyaw := (want - yaw_rate)
 		apply_torque(up * clampf(dyaw, -3.0, 3.0) * inertia.y * assist * 10.0)
 		# Damp roll/pitch wobble.

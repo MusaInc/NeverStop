@@ -35,6 +35,11 @@ const DEFAULTS := {
 	"total_roadblocks": 0,
 	"challenges": {},    # id -> true when complete
 	"history": [],       # last 10 runs: {score, time, heat, car}
+	"xp": 0,             # career XP (sum of run scores) -> Progression.RANKS
+	"tutorial_done": false,
+	"total_contracts": 0,
+	"daily_last": "",    # YYYY-MM-DD of the last daily bonus
+	"daily_streak": 0,
 }
 
 
@@ -92,6 +97,12 @@ func save() -> void:
 			dir.copy(path, path + ".bak")
 		dir.rename(tmp, path)
 	changed.emit()
+
+
+## Settings → Reset everything: a fresh profile (settings are kept).
+func reset_profile() -> void:
+	data = DEFAULTS.duplicate(true)
+	save()
 
 
 func cash() -> int:

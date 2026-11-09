@@ -334,7 +334,7 @@ def arches(body, P, m):
     depth = P.get("tyre_w", 0.27) + 0.16
     for y in P.get("axles", (P["wb"] / 2, -P["wb"] / 2)):
         for sx in (-1, 1):
-            c = axle_cyl("arch", wr + P.get("arch_gap", 0.075), depth + 0.4, sx * (W2 - depth / 2 + 0.2), y, wr, 36)
+            c = axle_cyl("arch", wr + P.get("arch_gap", 0.045), depth + 0.4, sx * (W2 - depth / 2 + 0.2), y, wr, 36)
             cut(body, c, m["liner"])
 
 
@@ -737,7 +737,7 @@ def side_band(P, m, surf, out, z0, z1, y0, y1, material, slope=0.0, nu=24):
 
 def arch_flares(P, m, surf, out, material, width=0.09, thick=0.03, a0=-0.15, a1=math.pi + 0.15):
     wr = P["wheel_r"]
-    r0 = wr + P.get("arch_gap", 0.075) - 0.005
+    r0 = wr + P.get("arch_gap", 0.045) - 0.005
     for y in P.get("axles", (P["wb"] / 2, -P["wb"] / 2)):
         for sd in (1, -1):
             decal_add(out, decal(surf, "side", arc_band(y, wr, r0, r0 + width, a0, a1), material, nu=16, nv=1,
@@ -755,17 +755,18 @@ def def_kestrel():
     L, W = 4.0, 1.8
     hl = L / 2
     return dict(
-        L=L, W=W, ride=0.17, wheel_r=0.31, wb=2.56, tyre_w=0.24, end_r=0.16,
-        top=[(-hl, 0.9), (-hl + 0.2, 0.98), (-1.2, 0.99), (0.9, 0.92), (1.55, 0.86), (hl, 0.66)],
-        bottom=[(-hl, 0.42), (-hl + 0.45, 0.22), (hl - 0.55, 0.22), (hl, 0.36)],
-        shoulder=[(-hl, 0.78), (0.0, 0.8), (hl, 0.6)],
-        plan=[(-hl, 0.9), (-hl + 0.4, 0.99), (hl - 0.6, 1.0), (hl, 0.86)],
-        tuck_top=0.1, tuck_bot=0.05, crown=0.045, r_top=0.09, r_sh=0.12, r_bot=0.07,
-        glass=dict(y_front=1.08, y_rear=-1.93, roof_f=0.15, roof_r=-1.62, roof=1.48, tumble=0.16, r=0.07,
-                   pillars=[(-0.38, 0.12)], c_pillar=-1.55, ws_curve=1.4, bl_curve=1.1),
+        L=L, W=1.84, ride=0.15, wheel_r=0.325, wb=2.6, tyre_w=0.25, end_r=0.14,
+        top=[(-hl, 0.9), (-hl + 0.2, 0.97), (-1.2, 0.97), (0.9, 0.9), (1.55, 0.84), (hl, 0.68)],
+        bottom=[(-hl, 0.4), (-hl + 0.42, 0.2), (hl - 0.5, 0.2), (hl, 0.34)],
+        shoulder=[(-hl, 0.8), (-1.3, 0.8), (0.0, 0.76), (hl, 0.62)],
+        plan=[(-hl, 0.9), (-1.5, 1.0), (-0.6, 0.96), (0.7, 0.96), (1.35, 1.0), (hl, 0.86)],
+        tuck_top=0.12, tuck_bot=0.05, crown=0.045, r_top=0.08, r_sh=0.06, r_bot=0.07,
+        glass=dict(y_front=0.92, y_rear=-1.9, roof_f=0.12, roof_r=-1.5, roof=1.42, tumble=0.2, r=0.07,
+                   pillars=[(-0.42, 0.12)], c_pillar=-1.45, ws_curve=1.5, bl_curve=1.25),
         lamps=dict(head_h=0.1, head_slant=0.02, grille_w=0.42, grille_h=0.08, intake_w=0.7, intake_h=0.1,
                    tail_z=0.98, tail_h=0.16, tail_x=(0.55, 0.85)),
-        doors=[(0.95, 0.32, 0.92), (-0.38, 0.32, 0.95)],
+        doors=[(0.98, 0.3, 0.9), (-0.42, 0.3, 0.93)],
+        sill=True, flares=True,
     )
 
 
@@ -773,24 +774,24 @@ def def_marlin():
     L, W = 4.82, 1.88
     hl = L / 2
     return dict(
-        L=L, W=W, ride=0.15, wheel_r=0.34, wb=2.88, tyre_w=0.25, end_r=0.15,
-        top=[(-hl, 0.84), (-hl + 0.25, 0.94), (-1.35, 0.96), (0.95, 0.86), (1.9, 0.79), (hl, 0.62)],
+        L=L, W=W, ride=0.14, wheel_r=0.355, wb=2.9, tyre_w=0.26, end_r=0.13,
+        top=[(-hl, 0.86), (-hl + 0.25, 0.94), (-1.35, 0.95), (0.95, 0.86), (1.9, 0.8), (hl, 0.7)],
         bottom=[(-hl, 0.4), (-hl + 0.6, 0.2), (hl - 0.7, 0.2), (hl, 0.32)],
         shoulder=[(-hl, 0.8), (0.0, 0.76), (hl, 0.6)],
-        plan=[(-hl, 0.88), (-hl + 0.45, 0.99), (hl - 0.7, 1.0), (hl, 0.84)],
+        plan=[(-hl, 0.9), (-1.75, 1.0), (-0.9, 0.97), (0.8, 0.97), (1.5, 1.0), (hl, 0.9)],
         tuck_top=0.12, tuck_bot=0.05, crown=0.04, r_top=0.05, r_sh=0.035, r_bot=0.07,
-        glass=dict(y_front=1.2, y_rear=-1.48, roof_f=0.25, roof_r=-0.82, roof=1.42, tumble=0.2, r=0.06,
+        glass=dict(y_front=1.22, y_rear=-1.55, roof_f=0.2, roof_r=-0.95, roof=1.39, tumble=0.2, r=0.06,
                    pillars=[(-0.28, 0.12)], c_pillar=-1.25, ws_curve=1.5, bl_curve=1.4),
         lamps=dict(head_h=0.075, head_slant=0.035, grille_w=0.52, grille_h=0.13, grille_chrome=True, grille_bars=2,
                    intake_w=0.76, tail_bar=True, tail_z=0.9, tail_h=0.085),
         doors=[(1.0, 0.3, 0.86), (-0.28, 0.3, 0.9), (-1.38, 0.32, 0.92)],
-        boot_lip=True,
+        boot_lip=True, sill=True, flares=True,
     )
 
 
 def def_scout():
     P = def_kestrel()
-    P.update(W=1.9, ride=0.24, wheel_r=0.33, tyre_w=0.27, arch_gap=0.085)
+    P.update(W=1.9, ride=0.24, wheel_r=0.34, tyre_w=0.27, arch_gap=0.07, sill=False, flares=False)
     hl = P["L"] / 2
     P["top"] = [(-hl, 0.98), (-hl + 0.2, 1.06), (-1.2, 1.07), (0.9, 1.0), (1.55, 0.94), (hl, 0.74)]
     P["bottom"] = [(-hl, 0.5), (-hl + 0.45, 0.3), (hl - 0.55, 0.3), (hl, 0.44)]
@@ -805,7 +806,7 @@ def def_brute():
     L, W = 4.92, 1.96
     hl = L / 2
     return dict(
-        L=L, W=W, ride=0.15, wheel_r=0.35, wb=2.9, tyre_w=0.3, end_r=0.09,
+        L=L, W=W, ride=0.14, wheel_r=0.365, wb=2.9, tyre_w=0.31, end_r=0.09, sill=True, flares=True,
         top=[(-hl, 0.86), (-hl + 0.12, 0.93), (-1.5, 0.94), (0.5, 0.92), (2.1, 0.88), (hl, 0.8)],
         bottom=[(-hl, 0.36), (-hl + 0.5, 0.2), (hl - 0.6, 0.2), (hl, 0.3)],
         shoulder=[(-hl, 0.78), (-1.6, 0.8), (0.4, 0.76), (hl, 0.74)],
@@ -824,7 +825,7 @@ def def_vanta():
     L, W = 4.48, 1.92
     hl = L / 2
     return dict(
-        L=L, W=W, ride=0.12, wheel_r=0.34, wb=2.6, tyre_w=0.28, end_r=0.13,
+        L=L, W=W, ride=0.12, wheel_r=0.355, wb=2.62, tyre_w=0.29, end_r=0.13, flares=True,
         top=[(-hl, 0.8), (-hl + 0.18, 0.9), (-1.25, 0.92), (0.4, 0.8), (1.5, 0.68), (hl, 0.48)],
         bottom=[(-hl, 0.32), (-hl + 0.5, 0.16), (hl - 0.6, 0.16), (hl, 0.24)],
         shoulder=[(-hl, 0.74), (-1.3, 0.76), (0.2, 0.64), (1.4, 0.6), (hl, 0.42)],
@@ -842,7 +843,7 @@ def def_halcyon():
     L, W = 4.62, 2.04
     hl = L / 2
     return dict(
-        L=L, W=W, ride=0.1, wheel_r=0.35, wb=2.7, tyre_w=0.32, end_r=0.16,
+        L=L, W=W, ride=0.1, wheel_r=0.365, wb=2.72, tyre_w=0.33, end_r=0.16, flares=True,
         top=[(-hl, 0.86), (-hl + 0.2, 0.96), (-1.25, 0.94), (-0.2, 0.76), (1.2, 0.64), (hl, 0.42)],
         bottom=[(-hl, 0.3), (-hl + 0.45, 0.13), (hl - 0.55, 0.13), (hl, 0.2)],
         shoulder=[(-hl, 0.72), (-1.3, 0.82), (-0.3, 0.6), (1.35, 0.6), (hl, 0.36)],
@@ -861,7 +862,7 @@ def def_stiletto():
     L, W = 4.7, 2.06
     hl = L / 2
     return dict(
-        L=L, W=W, ride=0.09, wheel_r=0.36, wb=2.72, tyre_w=0.34, end_r=0.06, step=0.1,
+        L=L, W=W, ride=0.09, wheel_r=0.37, wb=2.74, tyre_w=0.35, end_r=0.06, step=0.1,
         top=dict(lin=[(-hl, 0.86), (-hl + 0.08, 0.92), (-1.8, 0.93), (-0.6, 0.86), (0.6, 0.74), (1.6, 0.6), (hl - 0.1, 0.42), (hl, 0.38)]),
         bottom=dict(lin=[(-hl, 0.3), (-hl + 0.4, 0.12), (hl - 0.45, 0.12), (hl, 0.17)]),
         shoulder=dict(lin=[(-hl, 0.7), (-1.4, 0.74), (0.0, 0.6), (1.4, 0.48), (hl, 0.3)]),
@@ -1185,7 +1186,7 @@ def features(name, P, m, body, glass, surf, out):
             decal_add(out, decal(surf, "rear", quad((sx * 0.7, zr - 0.14), (sx * 0.75, zr - 0.14), (sx * 0.62, zr - 0.04), (sx * 0.57, zr - 0.04)),
                                  m["lamp_tail"], nu=1, nv=2, off=0.012, name="tail_y"))
         decal_add(out, decal(surf, "rear", rect(-0.9, 0.22, 0.9, 0.5), m["grille"], nu=10, nv=2, off=0.003, name="rear_mesh"))
-        out += wing(m, P["W"] * 0.86, 0.34, (0, -hl + 0.3, 1.26), angle=0.2, post_h=0.32, posts=0.2, mat_key="carbon")
+        out += wing(m, P["W"] * 0.8, 0.3, (0, -hl + 0.28, 1.12), angle=0.16, post_h=0.2, posts=0.22, mat_key="carbon")
         for k in range(7):
             out.append(box("fin", (0.02, 0.45, 0.18), (-0.75 + k * 0.25, -hl + 0.24, ride + 0.11), m["carbon"]))
         out.append(box("diffuser", (P["W"] * 0.86, 0.5, 0.04), (0, -hl + 0.26, ride + 0.02), m["carbon"]))
@@ -1372,6 +1373,24 @@ def police_kit(P, m, out, kind, surf):
                                          off=0.033, side=sd, name="battenburg"))
 
 
+# ---------------------------------------------------------------- stance
+
+
+def stance(P, m, surf, out):
+    """What makes a toy car look planted: body-colour flares that swell over
+    the tyres, and a dark sill between the wheels that visually lowers the
+    body. Driven by flags on the body definition."""
+    wr = P["wheel_r"]
+    if P.get("flares"):
+        arch_flares(P, m, surf, out, m["paint"], width=0.07, thick=0.022, a0=0.05, a1=math.pi - 0.05)
+    if P.get("sill"):
+        zb = curve(P, "bottom", 0.0)
+        axles = P.get("axles", (P["wb"] / 2, -P["wb"] / 2))
+        y0 = min(axles) + wr + P.get("arch_gap", 0.045) + 0.1
+        y1 = max(axles) - wr - P.get("arch_gap", 0.045) - 0.1
+        skirts(P, m, surf, out, m["cladding"], y0, y1, zb + 0.01, zb + 0.11, thick=0.018)
+
+
 # ---------------------------------------------------------------- build
 
 
@@ -1387,6 +1406,7 @@ def build(name, P, police=None):
     glass = glasshouse(P, m) if P.get("glass") else None
     surf = Surface([body] + ([glass] if glass else []))
     surf = features(name if police is None else police[0], P, m, body, glass, surf, out) or surf
+    stance(P, m, surf, out)
     common_lamps(P, m, surf, out, "std")
     if police:
         police_kit(P, m, out, police[1], surf)
@@ -1444,10 +1464,11 @@ def wheel(style):
     # Deep, dark wheel well behind the spokes: gaps read as depth, not grey.
     face = xcyl("rimface", rim_r * 0.98, 0.04, (-0.14, 0, 0), m["liner"], 32)
     parts.append(face)
-    lip = cyl("lip", rim_r, 0.035, (0, 0, 0), m["rim"], 32, r2=rim_r * 0.95)
-    lip.rotation_euler = (0, math.pi / 2, 0)
-    lip.location = (0.15, 0, 0)
-    parts.append(lip)
+    # Rim lip: a ring (it used to be a solid disc that hid the spokes, so
+    # every alloy read as a flat silver hubcap).
+    parts.append(annulus("lip", rim_r * 0.9, rim_r, 0.17, m["rim"]))
+    parts.append(annulus("lip_in", rim_r * 0.9, rim_r, 0.13, m["rim"]))
+
     # Brake disc behind the spokes (the caliper is added in Godot: it mustn't spin).
     parts.append(xcyl("disc", rim_r * 0.8, 0.04, (-0.02, 0, 0), disc_m, 28))
     parts.append(xcyl("disc_hat", rim_r * 0.36, 0.05, (0.0, 0, 0), m["rim_dark"] if "rim_dark" in m else dark_m, 20))

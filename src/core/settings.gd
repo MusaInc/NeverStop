@@ -36,6 +36,8 @@ var show_perf := false
 ## (drag a virtual wheel), "tilt" (accelerometer).
 var steer_mode := "zones"
 var steer_sensitivity := 1.0
+## "pedal": press GAS to go (default). "auto": the car accelerates by itself.
+var accelerate := "pedal"
 ## Camera distance: 0 near, 1 normal, 2 far.
 var camera_distance := 1
 var music_volume := 0.5
@@ -58,6 +60,7 @@ func _ready() -> void:
 		haptics = cfg.get_value("input", "haptics", haptics)
 		steer_mode = cfg.get_value("input", "steer_mode", steer_mode)
 		steer_sensitivity = cfg.get_value("input", "steer_sensitivity", steer_sensitivity)
+		accelerate = cfg.get_value("input", "accelerate", accelerate)
 		camera_distance = cfg.get_value("input", "camera_distance", camera_distance)
 		music_volume = cfg.get_value("audio", "music", music_volume)
 		sfx_volume = cfg.get_value("audio", "sfx", sfx_volume)
@@ -89,6 +92,7 @@ func save() -> void:
 	cfg.set_value("input", "haptics", haptics)
 	cfg.set_value("input", "steer_mode", steer_mode)
 	cfg.set_value("input", "steer_sensitivity", steer_sensitivity)
+	cfg.set_value("input", "accelerate", accelerate)
 	cfg.set_value("input", "camera_distance", camera_distance)
 	cfg.set_value("audio", "music", music_volume)
 	cfg.set_value("audio", "sfx", sfx_volume)

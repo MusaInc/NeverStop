@@ -1,3 +1,56 @@
+# Status: 2026-11-09 (0.3.0)
+
+## 0.3.0: controls, steering, car designs, a finished game loop
+
+- **Press to accelerate.** Touch now has a tall GAS pedal (far right) with BRAKE beside it; the thumb rocks between
+  them without lifting. Keyboard needs W / ↑, pad RT. Settings → Accelerate → Auto brings back the always-on throttle.
+  Steering slider: 105 px to full lock (was 80) with a 5 px dead zone; tilt has a small dead zone. NOS shows its tank.
+- **Steering model fixed** (`Car.max_steer_angle`, new `tests/test_steering.gd`). Measured before: at 110 km/h a
+  60 % steering step overshot the target yaw rate by 40–72 % within 50 ms (the nose snapped in, then backed off), and
+  60 % input already saturated grip, so the top of the range did nothing. Now full lock at every speed asks for just
+  over what the tyres can deliver, the wheel takes a constant ~0.17 s from centre to lock, and a stability control
+  catches yaw beyond what the steering asks for. After: overshoot ≤ 20 % on every car, steering is proportional across
+  the range, full-lock grip turns don't fall into drift mode, let-go settles in ~0.2 s.
+- **Car designs** (`tools/blender/build_vehicles.py`): the wheel rim "lip" was a solid disc that hid the spokes, so
+  every alloy read as a flat silver hubcap; it is a ring now (spokes, discs and calipers show). Tyres fill the arches
+  (arch gap 75 → 45 mm), bigger wheels on the sporty cars, body-colour flares and dark sills for stance. The Kestrel
+  is a proper hot hatch (was a one-box people-carrier silhouette); the Marlin has a lower, longer glasshouse and a
+  blunter nose; the Stiletto's wing is smaller. Physics sizes follow the models as before.
+- **Contracts** (`src/core/contracts.gd`): three rolling objectives on the HUD (near misses, wrecks, drift, air, top
+  speed, distance, chain, smashing street furniture, roadblocks). Each pays score through the chain plus cash; a
+  harder one replaces it.
+- **Career ranks**: every point scored is XP; 11 ranks from Joyrider to Never Stop, each rank-up pays cash. Shown on
+  the title, results and records.
+- **First-run coach**: GAS → steer both ways → brake → drift → goal, one prompt at a time; each gives up after 25 s.
+- **How to Play** screen (controls for touch / keys / pad, the rules). 8 new challenges (22 total).
+- **Car switching fixed.** The garage's ◀ ▶ buttons sat under the details column, which grew taller than the
+  screen, so they were cut off (and off-screen behind an iPhone's safe area). The switcher now sits under the car,
+  always visible, with a dots indicator. Also fixed: after switching car, the effects and street-furniture systems
+  hit the freed old car (a script error every frame until the list refreshed). `game.test_9` now drives the real
+  buttons (Next → Buy → Prev → Drive → Back → Play), checks each is on screen and that the chase uses the chosen car.
+- **UI redesign, minimal / Arcade-style**: frosted-glass cards, pill buttons, sentence-case headings, one amber
+  accent. Garage: a details card with tabs – Performance (each upgrade shows the stat it improves, the next level as
+  a ghost bar, level pips, one price button), Style (paint swatches, wheels), Start (start location) – and one main
+  action under the car (Buy / Drive this / Selected). Touch controls: glass pedals with a single chevron, glass
+  round buttons. HUD panels are rounded.
+- **Completion pass**:
+  - Auto-pause when the app is backgrounded or loses focus (call, home swipe, notification centre), and the save is
+    flushed when iOS suspends or closes the app.
+  - Controller / keyboard: B or Esc goes back on every screen and resumes from pause (no instant re-pause); LB / RB or
+    Q / E switch car in the garage.
+  - Settings: High-contrast HUD (it was a setting nothing used; now solid backing behind every readout), Replay
+    tutorial, Reset everything (two taps), About (version, credits, privacy statement, Godot's licence text).
+  - Daily streak bonus on the title ($250 rising to $2,500 on day 7; a missed day restarts the streak).
+  - Music: a menu theme and a PEAK layer (arpeggio, 16th hats, stabs) from heat 5, both synthesised like the rest
+    (`gen_sounds.py ... music_extra`); the menu theme crossfades with the chase bed.
+  - iOS marketing version 0.3.0 (export preset and the TestFlight workflow default).
+- Tests: 26 unit/physics + 12 whole-game, all passing; packaged Linux self-test OK; web build 13/13 in Chromium;
+  iOS Xcode project exports (the .ipa itself needs macOS / the TestFlight workflow).
+- **Still needs a person** (can't be done from this server): playing it on an iPhone (touch feel, steering,
+  FPS/thermals), listening to the new music and the sound mix, a difficulty pass with real players, App Store
+  screenshots and listing.
+- Not checked by a person yet: the new pedals and steering on a phone.
+
 # Status: 2026-11-07 (vehicles pass 2, unreleased)
 
 ## Kerbs, handling, smoke, headlights, car looks (2026-11-07)

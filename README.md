@@ -22,13 +22,14 @@ never because one car touched you.
 
 | | Touch (default) | Keyboard | Gamepad |
 |---|---|---|---|
-| Accelerate | automatic | W / ↑ (automatic too) | RT |
+| Accelerate | hold GAS (Settings → Accelerate → Auto for always-on) | W / ↑ | RT |
 | Steer | slide a thumb anywhere on the left side (or ◀ ▶ buttons, or tilt – Settings) | A D / ← → | left stick |
-| Brake / reverse | BRAKE (hold at a standstill to reverse) | S / ↓ | LT |
+| Brake / reverse | BRAKE pedal, next to GAS (hold at a standstill to reverse) | S / ↓ | LT |
 | Drift (handbrake) | DRIFT | Space | A |
 | Nitro (if fitted) | NOS | Shift | X |
 | Recover | automatic when stuck / upside down | R | Y |
 | Pause | II chip | Esc / P | Start |
+| Menus | tap | arrows + Enter, Esc = back, Q / E = switch car | d-pad + A, B = back, LB / RB = switch car |
 
 ## Documentation
 

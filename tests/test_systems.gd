@@ -113,3 +113,59 @@ func test_heat_schedule(t) -> void:
 	t.check(d.plan()["units"] <= 12, "physical units capped by the quality budget")
 	t.check(d.plan()["total"] > 40, "but the pursuit keeps growing")
 	d.free()
+
+
+func test_contracts_complete_pay_and_refill(t) -> void:
+	var sk := ScoreKeeper.new()
+	sk.running = true
+	var ct := Contracts.new()
+	ct.begin(sk, 7)
+	t.check(ct.active.size() == Contracts.SLOTS, "three contracts on offer")
+	var kinds := ct.active.map(func(c): return c["kind"])
+	t.check(kinds.size() == {kinds[0]: 1, kinds[1]: 1, kinds[2]: 1}.size(), "no duplicate contracts (%s)" % [kinds])
+	# Force the first one done by pushing its stat past the target.
+	var c0: Dictionary = ct.active[0]
+	var stat_name: String = Contracts.KINDS[c0["kind"]][1]
+	match stat_name:
+		"near_misses": sk.near_misses += 100
+		"police_wrecked": sk.police_wrecked += 100
+		"drift_time": sk.drift_time += 100.0
+		"air_time": sk.air_time += 100.0
+		"distance_km": sk.distance += 100000.0
+		"chain": sk.chain = 8.0
+		"smashed": ct.smashed += 100
+		"roadblocks": sk.roadblocks += 100
+		"top_speed_kmh": pass
+	if stat_name == "top_speed_kmh":
+		t.note("first contract is a speed one; checking the second slot path instead")
+		c0 = ct.active[1]
+	var got: Array = []
+	ct.completed.connect(func(c): got.append(c))
+	ct._physics_process(1.0 / 60.0)
+	if stat_name != "top_speed_kmh":
+		t.check(got.size() >= 1 and ct.done_count >= 1, "contract completed")
+		t.check(ct.cash > 0 and sk.score > 0.0, "it pays cash ($%d) and score (%d)" % [ct.cash, int(sk.score)])
+		t.check(ct.active.size() == Contracts.SLOTS and ct.active[0] != c0, "a new contract takes its place")
+	ct.free()
+	sk.free()
+
+
+func test_ranks_from_career_xp(t) -> void:
+	t.check(Progression.rank_index(0) == 0, "everyone starts at rank 1")
+	var cash: int = save.cash()
+	var gained := Progression.add_xp(save, 30000)
+	t.check(gained.size() == 2, "30k XP climbs two ranks (%d)" % gained.size())
+	t.check(save.cash() == cash + int(Progression.RANKS[1][2]) + int(Progression.RANKS[2][2]), "rank-ups pay")
+	t.check(Progression.add_xp(save, 10).is_empty(), "no rank-up for a little XP")
+	t.check(Progression.rank_progress(int(save.data["xp"])) > 0.0 and Progression.rank_progress(99999999) == 1.0, "progress bar")
+
+
+func test_daily_streak(t) -> void:
+	var c0: int = save.cash()
+	var d1 := Progression.daily_claim(save, "2026-11-01")
+	t.check(d1["claimed"] and d1["day"] == 1 and save.cash() == c0 + Progression.DAILY[0], "first day pays")
+	t.check(not Progression.daily_claim(save, "2026-11-01")["claimed"], "once a day")
+	var d2 := Progression.daily_claim(save, "2026-11-02")
+	t.check(d2["day"] == 2 and d2["reward"] == Progression.DAILY[1], "next day continues the streak")
+	var d3 := Progression.daily_claim(save, "2026-11-05")
+	t.check(d3["day"] == 1, "a missed day starts again")

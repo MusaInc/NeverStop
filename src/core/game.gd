@@ -35,6 +35,7 @@ var bot_field: RoadNet.Field
 var director: PursuitDirector
 var civilians: CivilianTraffic
 var score: ScoreKeeper
+var contracts: Contracts
 var hud: Hud
 var touch: TouchDrive
 var ui: CanvasLayer
@@ -52,6 +53,10 @@ var _shots: Array = []
 var _shot_path := ""
 var _time := 0.0
 var _quit_after := -1.0
+var _resumed_frame := -1
+var daily := {}
+## Off in headless runs (no window, spurious focus events); tests turn it on.
+var autopause := DisplayServer.get_name() != "headless"
 
 
 func _ready() -> void:
@@ -122,6 +127,9 @@ func _ready() -> void:
 	score = ScoreKeeper.new()
 	score.name = "Score"
 	add_child(score)
+	contracts = Contracts.new()
+	contracts.name = "Contracts"
+	add_child(contracts)
 	ui = CanvasLayer.new()
 	add_child(ui)
 	var sfx := SpeedFx.new()
@@ -144,6 +152,12 @@ func _ready() -> void:
 	score.director = director
 	score.civilians = civilians
 	hud.bind(self, player, director, score)
+	hud.contracts = contracts
+	contracts.completed.connect(func(c):
+		hud.contract_done(c)
+		if audio:
+			audio.event_chime(int(c["score"]) * 2)
+		Settings.haptic(40, 0.5))
 	sfx.player = player
 	speed_fx = sfx
 	hud.minimap.camera = camera
@@ -176,12 +190,15 @@ func _ready() -> void:
 		if by == player or player.global_position.distance_to(at) < 60.0:
 			audio.play_at("prop_hit", at, 2.0 if by == player else -2.0)
 		if by == player:
+			contracts.smashed += 1
 			camera.shake(0.08 if kind in ["bin", "bollard", "sign_post"] else 0.18))
 	var menus_script: Script = load("res://src/ui/menus.gd") if ResourceLoader.exists("res://src/ui/menus.gd") else null
 	if menus_script:
 		menus = menus_script.new()
 		ui.add_child(menus)
 		menus.setup(self)
+	if not (args.has("gametest") or args.has("lineup") or args.has("bench") or args.has("selftest")):
+		daily = Progression.daily_claim(SaveData, Time.get_date_string_from_system())
 	if args.has("lineup"):
 		start_run()
 		var lu: Node = load("res://tools/lineup.gd").new()
@@ -299,6 +316,8 @@ func start_run() -> void:
 	if args.has("nopolice"):
 		director.active = false
 	score.begin()
+	contracts.begin(score, int(args["seed"]) if args.has("seed") else -1)
+	hud.start_coach(not SaveData.data.get("tutorial_done", false) and bot == null and not args.has("notutorial"))
 	_scenario(args.get("scenario", ""))
 	hud.visible = true
 	touch.visible = hud.touch_mode
@@ -378,6 +397,7 @@ func enter_menu() -> void:
 	state = State.MENU
 	director.clear()
 	score.running = false
+	contracts.stop()
 	hud.visible = false
 	touch.visible = false
 	if audio:
@@ -409,6 +429,7 @@ func pause() -> void:
 func resume() -> void:
 	if state != State.PAUSED:
 		return
+	_resumed_frame = Engine.get_process_frames()
 	state = State.PLAYING
 	get_tree().paused = false
 	if menus:
@@ -439,9 +460,18 @@ func _on_busted() -> void:
 	Engine.time_scale = 0.35
 	camera.orbit(camera.view_yaw() + PI)
 	touch.visible = false
+	contracts.stop()
 	last_result = score.summary()
 	last_result["car"] = car_id
+	last_result["contracts"] = contracts.done_count
+	last_result["contract_cash"] = contracts.cash
+	last_result["smashed"] = contracts.smashed
+	last_result["currency"] = int(last_result["currency"]) + contracts.cash
+	var xp_before := int(SaveData.data.get("xp", 0))
 	last_result["records"] = SaveData.submit_run(last_result, car_id)
+	SaveData.data["total_contracts"] = int(SaveData.data.get("total_contracts", 0)) + contracts.done_count
+	last_result["xp_before"] = xp_before
+	last_result["ranks"] = Progression.add_xp(SaveData, int(last_result["score"]))
 	last_result["challenges"] = Progression.check(last_result, car_id, SaveData)
 	state_changed.emit(state)
 
@@ -493,7 +523,7 @@ func _physics_process(dt: float) -> void:
 			recover_player()
 		elif player.stuck_time > 3.5 and not player.disabled and director.bust < 0.05:
 			recover_player()
-	if state == State.PLAYING and Input.is_action_just_pressed("pause"):
+	if state == State.PLAYING and Input.is_action_just_pressed("pause") and Engine.get_process_frames() - _resumed_frame > 1:
 		pause()
 	if state == State.MENU and bot and player.disabled:
 		quit_to_menu()
@@ -505,6 +535,18 @@ func _physics_process(dt: float) -> void:
 			if menus:
 				menus.show_results(last_result)
 	Prof.end("game")
+
+
+## Phone call, home swipe, notification centre, another window: pause the
+## chase instead of letting the police bust a car nobody is driving.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT \
+			or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		if state == State.PLAYING and bot == null and autopause:
+			pause()
+	# iOS can kill a backgrounded app without warning: flush the profile.
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		SaveData.save()
 
 
 ## Puts the car back on the nearest lane facing along it (context recovery).

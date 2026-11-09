@@ -38,9 +38,6 @@ await page.touchscreen.tap(...at(...s.buttons.PLAY));
 s = await waitFor(v => v?.state === "playing", 60000);
 check(s?.state === "playing", "PLAY starts a chase with a touch");
 check(s?.touch === true, "touch controls are shown on a touch device");
-s = await waitFor(v => (v?.speed ?? 0) > 15, 60000);
-check((s?.speed ?? 0) > 15, `the car accelerates by itself (${(s?.speed ?? 0).toFixed(0)} km/h)`);
-await shot("2_driving");
 const active = new Map();
 async function send(type, id, lifted) {
   const pts = [...active.entries()].map(([i, [x, y]]) => ({ id: i, x, y }));
@@ -54,6 +51,16 @@ async function send(type, id, lifted) {
 const down = async (id, x, y) => { active.set(id, [x, y]); await send("touchstart", id); };
 const move = async (id, x, y) => { active.set(id, [x, y]); await send("touchmove", id); };
 const up = async id => { const xy = active.get(id); active.delete(id); await send("touchend", id, xy); };
+// Press to accelerate: the car waits for the GAS pedal.
+await new Promise(r => setTimeout(r, 2500));
+s = await waitFor(v => v?.state === "playing", 5000);
+check((s?.speed ?? 99) < 8, `the car waits for GAS (${(s?.speed ?? 0).toFixed(0)} km/h)`);
+if (engine === "chromium") {
+  await down(9, ...at(...s.touch_buttons.gas));
+  s = await waitFor(v => (v?.speed ?? 0) > 15, 60000);
+  check((s?.speed ?? 0) > 15 && (s?.throttle ?? 0) > 0.5, `holding GAS accelerates (${(s?.speed ?? 0).toFixed(0)} km/h)`);
+}
+await shot("2_driving");
 if (engine === "chromium") {
   const k = rect.h / 720;
   const p0 = at(0.2, 0.6);

@@ -1,13 +1,15 @@
 class_name DriveInput
 extends Node
 ## Merges keyboard, gamepad and touch into car controls each physics frame.
-## Mobile default: automatic acceleration (throttle on unless braking).
+## Press to accelerate: GAS pedal (touch), W / Up, or the right trigger.
+## Settings → Accelerate → Auto brings back the old always-on throttle.
 
 var car: Car
 var enabled := true
-var auto_accelerate := true
+var auto_accelerate := false
 ## Touch writes these (TouchDrive); -1..1 steer, 0..1 the rest.
 var touch_steer := 0.0
+var touch_gas := 0.0
 var touch_brake := 0.0
 var touch_handbrake := false
 var touch_nitro := false
@@ -39,7 +41,8 @@ func _physics_process(dt: float) -> void:
 	var sens: float = Settings.steer_sensitivity
 	steer = clampf(signf(steer) * pow(absf(steer), 1.0 / maxf(sens, 0.3)), -1.0, 1.0)
 	var brake := maxf(Input.get_action_strength("brake"), touch_brake)
-	var thr := Input.get_action_strength("accelerate")
+	var thr := maxf(Input.get_action_strength("accelerate"), touch_gas)
+	auto_accelerate = Settings.accelerate == "auto"
 	if auto_accelerate:
 		thr = maxf(thr, 1.0 if brake < 0.1 else 0.0)
 	car.steer = steer

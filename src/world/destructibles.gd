@@ -60,8 +60,11 @@ func count() -> int:
 
 func _physics_process(dt: float) -> void:
 	Prof.begin("props")
-	for c: Car in cars:
-		if not is_instance_valid(c) or c.freeze or not c.visible or c.speed < 4.0:
+	for o in cars:
+		if not is_instance_valid(o):
+			continue
+		var c := o as Car
+		if c.freeze or not c.visible or c.speed < 4.0:
 			continue
 		_check(c)
 	for k in _dirty.keys():

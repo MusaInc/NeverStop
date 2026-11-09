@@ -250,14 +250,86 @@ func test_8_street_furniture_breaks() -> void:
 	check(game.world.broken.has(item[3]) or (item[4] as CityWorld).broken.has(item[3]), "driving through a streetlight knocks it down")
 
 
+func _press(text: String) -> bool:
+	for b in game.menus.find_children("*", "Button", true, false):
+		var bt := b as Button
+		if bt.is_visible_in_tree() and (str(bt.name) == text or bt.text == text) and not bt.disabled:
+			# On screen (a button pushed below the edge can't be tapped).
+			var r := bt.get_global_rect()
+			var vp := game.get_viewport().get_visible_rect()
+			if not vp.encloses(r):
+				note("'%s' is off screen at %s" % [text, r])
+				return false
+			bt.pressed.emit()
+			return true
+	return false
+
+
 func test_9_garage_select_changes_car() -> void:
 	game.quit_to_menu()
 	await _frames(5)
-	SaveData.data["owned"].append("brute")
-	game.select_car("brute")
-	await _frames(5)
-	check(game.player.spec["id"] == "brute", "garage selection changes the car")
+	SaveData.data["cash"] = 100000
+	SaveData.data["owned"] = ["kestrel"]
+	SaveData.data["car"] = "kestrel"
 	game.select_car("kestrel")
+	await _frames(3)
+	game.menus.show_screen("garage")
+	await _frames(5)
+	# Through the real buttons: NEXT to the Marlin, buy it, drive it.
+	check(_press("Next"), "NEXT is on screen and tappable")
+	await _frames(3)
+	check(_press("Buy"), "BUY is offered for a car you don't own")
+	await _frames(3)
+	check(SaveData.owns("marlin"), "bought the Marlin")
+	check(game.car_id == "marlin" and game.player.spec["id"] == "marlin", "buying selects it (%s)" % game.car_id)
+	check(_press("Prev"), "PREV is on screen and tappable")
+	await _frames(3)
+	check(_press("Drive"), "DRIVE THIS for an owned car")
+	await _frames(3)
+	check(game.car_id == "kestrel" and SaveData.data["car"] == "kestrel", "switched back to the Kestrel")
+	_press("Next")
+	await _frames(3)
+	check(_press("Drive"), "and to the Marlin again")
+	await _frames(3)
+	check(_press("Back"), "BACK to the title")
+	await _frames(3)
+	check(_press("PLAY"), "PLAY")
+	await _frames(10)
+	check(game.state == game.State.PLAYING and game.player.spec["id"] == "marlin", "the chase uses the chosen car (%s)" % game.player.spec["id"])
+	# Busted -> CHANGE CAR -> garage works from the results screen too.
+	game.state = game.State.BUSTED
+	game.quit_to_menu()
+	game.menus.show_screen("garage")
+	await _frames(3)
+	check(game.menus.current == "garage" and _press("Next"), "garage reachable again after a chase")
+	SaveData.data["car"] = "kestrel"
+	game.select_car("kestrel")
+	game.menus.show_screen("")
+
+
+func test_9b_backgrounding_pauses_and_back_resumes() -> void:
+	await _start(1, false)
+	await _frames(20)
+	game.autopause = true
+	game._notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
+	await _frames(2)
+	check(game.state == game.State.PAUSED and get_tree().paused, "going to the background pauses the chase")
+	# B / Esc on the pause screen resumes, and doesn't instantly re-pause.
+	var ev := InputEventAction.new()
+	ev.action = "ui_cancel"
+	ev.pressed = true
+	Input.parse_input_event(ev)
+	await _frames(4)
+	check(game.state == game.State.PLAYING and not get_tree().paused, "Back resumes")
+	game.autopause = false
+	# Back from a menu screen returns to the title.
+	game.quit_to_menu()
+	game.menus._back_to = "title"
+	game.menus.show_screen("records")
+	await _frames(2)
+	Input.parse_input_event(ev)
+	await _frames(3)
+	check(game.menus.current == "title", "Back leaves Records (%s)" % game.menus.current)
 
 
 func test_z_long_session_stays_stable() -> void:

@@ -162,7 +162,10 @@ func _near_misses() -> void:
 				others.append(u.car)
 	var pw: float = (player.spec["size"] as Vector3).x * 0.5
 	var pl: float = (player.spec["size"] as Vector3).z * 0.5
-	for o: Car in others:
+	for oo in others:
+		if not is_instance_valid(oo):
+			continue
+		var o := oo as Car
 		var rel := o.global_position - p
 		if rel.length() > 14.0:
 			var k := o.get_instance_id()

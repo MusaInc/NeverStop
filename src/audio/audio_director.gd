@@ -40,7 +40,11 @@ var _gear := 1
 var _nitro_was := false
 var _music_bed: AudioStreamPlayer
 var _music_int: AudioStreamPlayer
+var _music_peak: AudioStreamPlayer
+var _music_menu: AudioStreamPlayer
 var _intensity := 0.0
+var _peak := 0.0
+var _menu_mix := 1.0
 var menu_mode := true
 
 
@@ -94,9 +98,18 @@ func _ready() -> void:
 	_music_bed.stream = _loop("music_bed")
 	_music_int = _player("Music")
 	_music_int.stream = _loop("music_intense")
+	_music_peak = _player("Music")
+	_music_peak.stream = _loop("music_peak")
+	_music_menu = _player("Music")
+	_music_menu.stream = _loop("music_menu")
+	# The chase stems share one tempo and length: started together they
+	# stay locked; the menu theme crossfades with them.
 	_music_bed.play()
 	_music_int.play()
+	_music_peak.play()
+	_music_menu.play()
 	_music_int.volume_db = -80.0
+	_music_peak.volume_db = -80.0
 	Settings.changed.connect(_volumes)
 	_volumes()
 
@@ -256,7 +269,14 @@ func _process(dt: float) -> void:
 		want = 0.0
 	_intensity = move_toward(_intensity, want, dt * 0.25)
 	_music_int.volume_db = linear_to_db(maxf(_intensity, 0.0001))
-	_music_bed.volume_db = -6.0 if menu_mode else -3.0
+	# Peak layer from heat 5 up (the whole city after you).
+	var want_peak := 0.0 if menu_mode or (director and director.busted_flag) else clampf((heat - 4) / 2.0, 0.0, 1.0)
+	_peak = move_toward(_peak, want_peak, dt * 0.2)
+	_music_peak.volume_db = linear_to_db(maxf(_peak * 0.9, 0.0001))
+	# Menu theme in the menus, chase bed in a chase.
+	_menu_mix = move_toward(_menu_mix, 1.0 if menu_mode else 0.0, dt * 0.6)
+	_music_menu.volume_db = linear_to_db(maxf(_menu_mix, 0.0001))
+	_music_bed.volume_db = linear_to_db(maxf(1.0 - _menu_mix, 0.0001)) - 3.0
 
 
 func _set_loop(name: String, db: float, k: float, pitch := 1.0) -> void:
