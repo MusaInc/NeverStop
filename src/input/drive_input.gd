@@ -34,7 +34,7 @@ func _physics_process(dt: float) -> void:
 	# Digital keys ramp in (a tap is a small correction, a hold a full turn).
 	var digital := absf(key_steer) == 1.0 and not touch_active
 	if digital:
-		_steer_smooth = move_toward(_steer_smooth, steer, dt * 3.2 if signf(steer) == signf(_steer_smooth) else dt * 7.0)
+		_steer_smooth = move_toward(_steer_smooth, steer, dt * 6.5 if signf(steer) == signf(_steer_smooth) else dt * 10.0)
 		steer = _steer_smooth
 	else:
 		_steer_smooth = steer

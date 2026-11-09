@@ -12,10 +12,14 @@ var _checks := 0
 
 func _initialize() -> void:
 	# Watchdog: a script that fails to compile leaves an await hanging.
-	var limit := 600.0
-	create_timer(limit, true, false, true).timeout.connect(func():
-		print("WATCHDOG: tests did not finish in %d s" % limit)
-		quit(99))
+	# Wall-clock, not game time: with --fixed-fps the simulation runs far
+	# faster than real time, so a game-time timer fired on long, healthy runs.
+	var limit_ms := 600000
+	var t_start := Time.get_ticks_msec()
+	process_frame.connect(func():
+		if Time.get_ticks_msec() - t_start > limit_ms:
+			print("WATCHDOG: tests did not finish in %d s" % (limit_ms / 1000))
+			quit(99))
 	_run.call_deferred()
 
 

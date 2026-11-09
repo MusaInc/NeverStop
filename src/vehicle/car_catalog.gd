@@ -68,7 +68,7 @@ const CARS := {
 		"perk": "SMOKE SHOW · drifts pay 1.6×",
 		"mass": 1720.0, "engine": 8.6, "top_speed": 62.0, "grip": 1.36, "grip_rear": 0.93, "slide": 0.86, "hb_grip": 0.48,
 		"drive": "rwd", "durability": 1.35, "drift_assist": 0.65, "drift_push": 2.2, "steer_fast": 7.0,
-		"paint": Color(0.55, 0.06, 0.04), "paint2": Color(0.95, 0.95, 0.92), "nitro": 0.5, "ram": 1.2,
+		"paint": Color(0.55, 0.06, 0.04), "paint2": Color(0.95, 0.95, 0.92), "nitro": 0.75, "ram": 1.2,
 		"score_drift": 1.6, "caps": {"engine": 5, "grip": 3, "armour": 4, "nitro": 4},
 	},
 	"vanta": {

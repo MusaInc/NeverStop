@@ -265,8 +265,18 @@ func _physics_process(dt: float) -> void:
 	if forward_speed < 0.0 and drive > 0.0:
 		curve = 1.0
 	var engine_f: float = spec["engine"] * mass * drive * curve * power_scale
+	# Nitro is a straight shove (not through the tyres: on a RWD muscle car
+	# the rears were already spinning, so the boost just became wheelspin).
+	var nitro_f := 0.0
 	if using_nitro:
-		engine_f += spec["engine"] * mass * 0.55 * spec.get("nitro", 0.0)
+		nitro_f = spec["engine"] * mass * 0.75 * spec.get("nitro", 0.0)
+	# Engine braking: lifting off GAS slows the car like a real one (it used
+	# to coast at 0.4 m/s², which made press-to-go feel like driving on ice).
+	var coast := 0.0
+	if thr < 0.05 and not reversing and not disabled:
+		coast = mass * (float(spec.get("engine_brake", 1.2)) + 1.3 * minf(sp_t, 1.0))
+	# GAS while still rolling backwards brakes first, then drives off.
+	var auto_brk := clampf(thr, 0.0, 1.0) if (thr > 0.1 and forward_speed < -0.5 and not reversing) else 0.0
 	_update_gears(sp_t, thr, dt)
 
 	# --- wheels ---
@@ -347,16 +357,26 @@ func _physics_process(dt: float) -> void:
 		var driven := drv == "awd" or (drv == "rwd" and not front) or (drv == "fwd" and front)
 		if driven:
 			f_long += engine_f / n_driven
-		if brk > 0.0 and not reversing:
-			var bf: float = spec["brake"] * mass * brk * (0.6 if front else 0.4)
+		var b_in := maxf(brk, auto_brk)
+		if b_in > 0.0 and not reversing:
+			var bf: float = spec["brake"] * mass * b_in * (0.62 if front else 0.38)
 			f_long -= signf(v_long) * minf(bf, absf(v_long) * mass * 0.25 / dt)
 		if hb:
 			f_long -= signf(v_long) * minf(mass * 3.5 * 0.5, absf(v_long) * mass * 0.25 / dt)
 		f_long -= v_long * mass * 0.0015  # rolling resistance
 		if disabled:
 			f_long -= signf(v_long) * minf(mass * 6.0 * 0.25, absf(v_long) * mass * 0.25 / dt)
+		# Engine braking on the driven wheels.
+		if driven and coast > 0.0:
+			f_long -= signf(v_long) * minf(coast / n_driven, absf(v_long) * mass * 0.25 / dt)
 		# Friction circle.
 		var cap: float = (mu_w if not hb else slide_mu * 1.3) * fz
+		# ABS: braking never takes the grip the tyre needs to corner, so
+		# braking mid-turn slows the car instead of spinning it (it used to
+		# slide every car out to ~65°).
+		if b_in > 0.0 and not hb and absf(f_long) > 0.0:
+			var room := sqrt(maxf(cap * cap - f_lat * f_lat, 0.0))
+			f_long = signf(f_long) * minf(absf(f_long), maxf(room, cap * 0.35))
 		var f := Vector2(f_long, f_lat)
 		var excess := 0.0
 		if f.length() > cap and f.length() > 0.0:
@@ -390,6 +410,8 @@ func _physics_process(dt: float) -> void:
 			apply_force(up * fa, (xf * _wheel_pos[axle[0]]) - global_position)
 			apply_force(up * -fa, (xf * _wheel_pos[axle[1]]) - global_position)
 
+	if nitro_f > 0.0 and ground > 0:
+		apply_central_force(fwd * nitro_f)
 	# Aerodynamics: drag + downforce.
 	apply_central_force(-vel * speed * spec.get("drag", 0.0009) * mass)
 	if ground > 0:
@@ -411,9 +433,15 @@ func _physics_process(dt: float) -> void:
 		# Arcade turning: the more you steer, the further past plain tyre grip
 		# the car is allowed to rotate (full lock ~1.7x).
 		var turn_k := lerpf(1.0, float(spec.get("turn", 1.7)), clampf(absf(str_in), 0.0, 1.0))
+		# Braking hard: the extra arcade rotation backs off (the tyres are busy stopping).
+		turn_k = lerpf(turn_k, 1.0, clampf(brk, 0.0, 1.0) * 0.7)
 		var want := clampf(-forward_speed * tan(steer_angle) / wb, -grip_yaw * turn_k, grip_yaw * turn_k)
 		var assist: float = spec.get("yaw_assist", 0.35)
-		if drifting or (handbrake and speed > 8.0):
+		# The drift assist (which HOLDS a slide angle) is for deliberate drifts:
+		# the handbrake, or power-oversteer on the throttle. A slide that comes
+		# from braking or a knock is caught and straightened instead.
+		var drift_mode := (handbrake and speed > 8.0) or (drifting and thr > 0.3 and brk < 0.2)
+		if drift_mode:
 			# Drift assist: steering sets the slide angle it holds; centred
 			# steering (or counter-steer) straightens it. The path itself
 			# curves with the steering, so the drift goes round the corner.
@@ -435,8 +463,12 @@ func _physics_process(dt: float) -> void:
 		# on the straights; also cancels solver drift).
 		# (Blended in, so a touch of steering doesn't drop the car off a cliff
 		# from fully held to loose.)
-		if not drifting and not handbrake:
+		if not drift_mode:
 			assist = lerpf(1.0, assist, smoothstep(0.03, 0.35, absf(str_in)))
+			if drifting:
+				assist = maxf(assist, 0.9)  # an unwanted slide: catch it
+			if role == "player" and _time - last_impact_time < 0.6:
+				assist = maxf(assist, 1.0)  # just been hit: straighten up fast
 			# Stability control: rotating faster than the wheel asks for
 			# (the nose snapping in on a flick) is caught firmly; turning in
 			# is still left to the tyres.
@@ -629,6 +661,11 @@ func _handle_impacts() -> void:
 	health = maxf(0.0, health - amount * 0.6)
 	if dv > 9.0 and (side == "left" or side == "right"):
 		grip_loss = clampf(dv / 30.0, 0.2, 0.8)
+	# Arcade: the player's car shrugs off most of the spin from a ram (police
+	# PIT you, they don't pirouette you into a wall).
+	if role == "player" and other is Car:
+		var av := angular_velocity
+		angular_velocity = Vector3(av.x, av.y * 0.5, av.z)
 	impact.emit(dv, at, n, other)
 	if health <= 0.0 and not disabled:
 		disabled = true

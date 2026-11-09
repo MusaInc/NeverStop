@@ -1,4 +1,25 @@
-# Status: 2026-11-09 (0.3.1)
+# Status: 2026-11-09 (0.3.2)
+
+## 0.3.2: driving pass (`tests/test_driving.gd`, every car, every manoeuvre)
+
+Measured before → after; each is now a test with a target.
+
+| Manoeuvre | Before | After |
+|---|---|---|
+| Lift off GAS at 100 km/h | 0.4 m/s² (coasted: 97 km/h after 2 s) | ~2.1 m/s² engine braking (85 km/h after 2 s) |
+| Brake hard mid-corner at 90 km/h | every car slid to ~65° (spin) | 10–15°: ABS keeps cornering grip; the drift assist (which holds a slide) now only engages for the handbrake or power-oversteer |
+| GAS while rolling backwards | slow to change direction | brakes first, then drives off (+27 km/h in 1.5 s from −22) |
+| Nitro, 2 s from 100 km/h | Brute +11 km/h (boost went into rear wheelspin) | a direct push: +20 to +53 km/h on every car |
+| Player hit by police | full spin carried through | spin halved at the hit, 0.6 s of strong stability after |
+| Keyboard steering ramp | 0.31 s to full lock | 0.15 s |
+
+Already good and now guarded by tests: lane change at 100 km/h (4.3–5.7 m sideways, settles straight, ≤ 6° slip),
+slalom at 80 km/h (≤ 7° slip, keeps pace), handbrake flick at 60 km/h (70–83° in 1 s, drives away clean),
+turning circle at 15 km/h (4.2–6.9 m), glancing a wall at 30°/90 km/h (keeps 63–68 km/h, no spin-out).
+
+Also: the test runner's watchdog used game time, which `--fixed-fps` runs much faster than real time, so a
+long but healthy suite was killed at "600 s"; it now uses wall-clock time (full unit suite: 12 s).
+
 
 ## 0.3.1: feedback from the first iPhone build
 
