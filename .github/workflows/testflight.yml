@@ -114,9 +114,18 @@ jobs:
     if: inputs.fix_build == ''
     runs-on: ${{ inputs.runner || 'macos-15' }}
     timeout-minutes: 30
-    outputs:
-      build_number: ${{ github.run_number }}
     steps:
+      - name: Build number
+        # Carries on across repos: a fresh repo's run counter restarts at 1,
+        # so the repo variable BUILD_BASE (Settings -> Variables) offsets it.
+        env:
+          BUILD_BASE: ${{ vars.BUILD_BASE }}
+          FIX_BUILD: ${{ inputs.fix_build }}
+        run: |
+          if [ -n "$FIX_BUILD" ]; then n="$FIX_BUILD"; else n=$(( GITHUB_RUN_NUMBER + ${BUILD_BASE:-0} )); fi
+          echo "BUILD=$n" >> "$GITHUB_ENV"
+          echo "Build number $n"
+
       - uses: actions/checkout@v4
 
       - name: Select Xcode 26 (App Store Connect rejects builds from older SDKs)
@@ -145,7 +154,6 @@ jobs:
         env:
           TEAM: ${{ secrets.APPLE_TEAM_ID }}
           VERSION: ${{ inputs.version }}
-          BUILD: ${{ github.run_number }}
         run: |
           sed -i '' "s/^application\/app_store_team_id=.*/application\/app_store_team_id=\"$TEAM\"/" export_presets.cfg
           sed -i '' "s/^application\/short_version=.*/application\/short_version=\"$VERSION\"/" export_presets.cfg
@@ -202,7 +210,7 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/private_keys/AuthKey_${KEY_ID}.p8" \
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" | tail -40
-          echo "Uploaded build ${{ github.run_number }} – it appears in App Store Connect → TestFlight after processing (5–30 min)."
+          echo "Uploaded build $BUILD – it appears in App Store Connect → TestFlight after processing (5–30 min)."
 
       - name: Remove the key (build)
         if: always()
@@ -216,6 +224,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
+      - name: Build number
+        # Carries on across repos: a fresh repo's run counter restarts at 1,
+        # so the repo variable BUILD_BASE (Settings -> Variables) offsets it.
+        env:
+          BUILD_BASE: ${{ vars.BUILD_BASE }}
+          FIX_BUILD: ${{ inputs.fix_build }}
+        run: |
+          if [ -n "$FIX_BUILD" ]; then n="$FIX_BUILD"; else n=$(( GITHUB_RUN_NUMBER + ${BUILD_BASE:-0} )); fi
+          echo "BUILD=$n" >> "$GITHUB_ENV"
+          echo "Build number $n"
+
       - name: App Store Connect API key
         env:
           P8: ${{ secrets.ASC_KEY_P8 }}
@@ -235,7 +254,6 @@ jobs:
         env:
           KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ISSUER: ${{ secrets.ASC_ISSUER_ID }}
-          BUILD: ${{ github.run_number }}
         run: |
           python3 - <<'PY'
           import json, os, sys, time, urllib.request, jwt
@@ -272,7 +290,6 @@ jobs:
         env:
           KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ISSUER: ${{ secrets.ASC_ISSUER_ID }}
-          BUILD: ${{ inputs.fix_build || github.run_number }}
         run: |
           python3 -m pip install --quiet --break-system-packages pyjwt cryptography
           python3 - <<'PY'
