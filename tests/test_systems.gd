@@ -83,11 +83,11 @@ func test_upgrades_change_the_spec(t) -> void:
 
 
 func test_challenges_pay_once(t) -> void:
-	var done := Progression.check(_run({"time": 70.0, "max_heat": 3}), "kestrel", save)
+	var done := Progression.check(_run({"time": 70.0, "max_heat": 5}), "kestrel", save)
 	var ids := done.map(func(c): return c["id"])
 	t.check("survive_1" in ids and "heat_3" in ids and "kestrel_3" in ids, "earned challenges (%s)" % [ids])
 	var cash: int = save.cash()
-	var again := Progression.check(_run({"time": 70.0, "max_heat": 3}), "kestrel", save)
+	var again := Progression.check(_run({"time": 70.0, "max_heat": 5}), "kestrel", save)
 	t.check(again.is_empty() and save.cash() == cash, "each pays once")
 
 

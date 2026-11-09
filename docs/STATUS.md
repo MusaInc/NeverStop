@@ -1,4 +1,23 @@
-# Status: 2026-11-09 (0.3.0)
+# Status: 2026-11-09 (0.3.1)
+
+## 0.3.1: feedback from the first iPhone build
+
+- **Headlights**: two dark discs in the light pool. Each lamp had its own spotlight inside the lamp housing, which
+  shadowed its own light. Now one soft, wide spotlight from just ahead of the bumper, no self-shadowing.
+- **Steering too weak / no sharp turns**: full lock is now an arcade turn (allowed ~1.7x past plain tyre grip, a turn
+  assist brings the nose round, a path-follow force swings the direction of travel with the nose instead of sliding
+  wide), wheels reach lock twice as fast. Measured at 90 km/h full lock: 0.53 → 0.79–1.05 rad/s (turning circle
+  ~47 m → ~28 m); nose response 0.15–0.22 s; overshoot ≤ 4 %; no rollover at full lock at 144 km/h. Touch slider
+  full lock 105 → 85 px. `test_steering` now requires > 0.75 rad/s at full lock.
+- **Blurry / blotchy graphics**: Medium (the phone default) rendered 3-D at 85 % and stretched it bilinearly. Now
+  full resolution on Medium/High with 4x MSAA, 8x anisotropic filtering, a 4096 shadow map; Low upscales with FSR.
+  The road-marking field was sampled every 2 m (smeared paint, blotchy junctions): now 1.25 m (+0.7 s startup here).
+- **Build-up too slow, too few police**: heat 2 at 15 s (was 40 s), heat 6 at ~2 min (was ~7 min), then +1 every
+  45 s. 3 police from the start (was 1); heat 6 brings 22 chasing cars and 60 units (was 13 / 34); several dispatched
+  at once; roadblocks from heat 2, helicopter and spikes from heat 3. Physical police cap: Low 12 / Medium 18 /
+  High 24 (was 8 / 12 / 16). Heat-8 swarm on this server, Medium: 18 cars, 105 units, frame avg 10.4 ms,
+  p95 13.8 ms; High: 24 cars, avg 12.2, p95 16.8. Heat challenges moved up to match.
+
 
 ## 0.3.0: controls, steering, car designs, a finished game loop
 

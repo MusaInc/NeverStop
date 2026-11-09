@@ -193,7 +193,10 @@ func max_steer_angle() -> float:
 	var fast := deg_to_rad(spec["steer_fast"])
 	var v := maxf(absf(forward_speed), 1.0)
 	var grip_yaw: float = spec["grip"] * GRAVITY * 1.1 / maxf(v, 4.0)
-	var ideal := atan(float(spec["wheelbase"]) * grip_yaw * 1.12 / v) + SLIP_PEAK * float(spec.get("steer_slip", 0.3))
+	# Arcade: full lock asks for well over what the tyres alone could do
+	# (the yaw assist and path-follow force below deliver it), so a full
+	# flick is a genuinely sharp turn at any speed.
+	var ideal := atan(float(spec["wheelbase"]) * grip_yaw * float(spec.get("turn", 1.7)) / v) + SLIP_PEAK * float(spec.get("steer_slip", 0.3))
 	return clampf(ideal, minf(fast, lock), lock)
 
 
@@ -232,7 +235,7 @@ func _physics_process(dt: float) -> void:
 	# Constant time from centre to full lock at any speed (~0.17 s, quicker
 	# on the sharper cars): fast enough to feel direct, slow enough that a
 	# flick at 150 km/h can't spike the yaw rate.
-	var steer_rate := max_steer_angle() / 0.17 * float(spec.get("steer_rate", 200.0)) / 200.0
+	var steer_rate := max_steer_angle() / 0.09 * float(spec.get("steer_rate", 200.0)) / 200.0
 	# Unwinding (back to centre or across to counter-steer) is quicker than
 	# winding on: catching a slide should never feel laggy.
 	if absf(target_steer) < absf(steer_angle) or signf(target_steer) != signf(steer_angle):
@@ -405,7 +408,10 @@ func _physics_process(dt: float) -> void:
 		var fs := signf(forward_speed + 0.01)
 		# The yaw rate the tyres can actually deliver at this speed.
 		var grip_yaw := mu * GRAVITY * 1.1 / maxf(speed, 4.0)
-		var want := clampf(-forward_speed * tan(steer_angle) / wb, -grip_yaw, grip_yaw)
+		# Arcade turning: the more you steer, the further past plain tyre grip
+		# the car is allowed to rotate (full lock ~1.7x).
+		var turn_k := lerpf(1.0, float(spec.get("turn", 1.7)), clampf(absf(str_in), 0.0, 1.0))
+		var want := clampf(-forward_speed * tan(steer_angle) / wb, -grip_yaw * turn_k, grip_yaw * turn_k)
 		var assist: float = spec.get("yaw_assist", 0.35)
 		if drifting or (handbrake and speed > 8.0):
 			# Drift assist: steering sets the slide angle it holds; centred
@@ -436,6 +442,16 @@ func _physics_process(dt: float) -> void:
 			# is still left to the tyres.
 			if yaw_rate * want > 0.0 and absf(yaw_rate) > absf(want) + 0.02:
 				assist = maxf(assist, float(spec.get("stability", 0.9)))
+			elif absf(str_in) > 0.2:
+				# Turning in: the assist brings the nose round quickly.
+				assist = maxf(assist, float(spec.get("turn_assist", 0.7)))
+			# Path follow: the direction of travel swings round with the nose
+			# instead of the car sliding wide (arcade grip). Stronger while
+			# steering; capped so a crash or a ramp still behaves.
+			var lat := vel.dot(right)
+			if speed > 3.0:
+				var pf := -lat * mass * float(spec.get("path_follow", 3.0)) * (0.35 + 0.65 * absf(str_in))
+				apply_central_force(right * clampf(pf, -mass * GRAVITY * 0.9, mass * GRAVITY * 0.9))
 		var dyaw := (want - yaw_rate)
 		apply_torque(up * clampf(dyaw, -3.0, 3.0) * inertia.y * assist * 10.0)
 		# Damp roll/pitch wobble.

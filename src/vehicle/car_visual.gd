@@ -332,23 +332,30 @@ func enable_headlights(shadows := false) -> void:
 	cone.rings = 1
 	cone.cap_top = false
 	cone.cap_bottom = false
-	for p: Vector3 in lamp_pos["head"]:
-		var l := SpotLight3D.new()
-		l.name = "Headlight"
-		l.light_color = Color(1.0, 0.95, 0.86)
-		l.spot_range = 75.0
-		l.spot_angle = 24.0
-		l.spot_angle_attenuation = 1.8
-		l.spot_attenuation = 0.75
-		l.light_energy = 0.0
-		l.light_specular = 0.6
-		l.shadow_enabled = shadows
-		l.position = p + Vector3(0, 0, -0.1)
-		# A touch down and a touch out: lights the lane and the kerbs.
-		l.rotation = Vector3(deg_to_rad(-3.5), -signf(p.x) * deg_to_rad(3.0), 0.0)
-		l.visible = false
-		add_child(l)
-		head_lights.append(l)
+	# One soft, wide pool of light from just ahead of the bumper. (Two lamps
+	# each had their own spotlight inside the lamp housing: the housing
+	# shadowed its own light, leaving two dark discs on the road.)
+	var heads: Array = lamp_pos["head"]
+	var mid := Vector3.ZERO
+	for p: Vector3 in heads:
+		mid += p
+	mid /= float(heads.size())
+	var l := SpotLight3D.new()
+	l.name = "Headlight"
+	l.light_color = Color(1.0, 0.95, 0.86)
+	l.spot_range = 80.0
+	l.spot_angle = 38.0
+	l.spot_angle_attenuation = 0.6
+	l.spot_attenuation = 0.8
+	l.light_energy = 0.0
+	l.light_specular = 0.4
+	l.shadow_enabled = false
+	l.position = Vector3(0.0, mid.y + 0.15, mid.z - 0.9)
+	l.rotation = Vector3(deg_to_rad(-6.0), 0.0, 0.0)
+	l.visible = false
+	add_child(l)
+	head_lights.append(l)
+	for p: Vector3 in heads:
 		var bm := MeshInstance3D.new()
 		bm.name = "Beam"
 		bm.mesh = cone
@@ -411,7 +418,7 @@ func _process(dt: float) -> void:
 		var on := lamps > 0.05 and not car.disabled
 		for l in head_lights:
 			l.visible = on
-			l.light_energy = 11.0 * lamps
+			l.light_energy = 14.0 * lamps
 		for b in beams:
 			b.visible = on
 	if beacon_light_a and beacon_light_a.visible:

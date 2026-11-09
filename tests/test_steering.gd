@@ -86,3 +86,5 @@ func test_hard_turn_stays_a_grip_turn(t) -> void:
 		var r: Dictionary = await _step(id, 90.0, 1.0)
 		t.note("%-8s full lock at 90 km/h: drift frames %d / 90, yaw %.2f rad/s" % [id, r["drift"], r["steady"]])
 		t.check(r["drift"] < 20, "%s: full lock without the handbrake doesn't snap into a drift" % id)
+		# Sharp enough to weave through traffic: ~30 m circle at 90 km/h or tighter.
+		t.check(r["steady"] > 0.75, "%s: full lock is a sharp turn (%.2f rad/s at 90 km/h)" % [id, r["steady"]])

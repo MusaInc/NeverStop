@@ -122,7 +122,7 @@ func generate(p_seed := 1207) -> CityLayout:
 	keep_out.append(_rect_poly(Rect2(CBD_CENTER.x - 40 - 22, CBD_CENTER.y + 60 - 22, 44, 44)))  # beacon plaza
 	keep_out.append(_rect_poly(Rect2(SetPieces.SHIP_AT - Vector2(50, 32), Vector2(100, 64))))  # the ship's basin
 	roads = CityRoads.new().generate(seed, district, BOUNDS, keep_out)
-	roads.bake_field(2.0)
+	roads.bake_field(1.25)
 	coast = roads.coast
 	island = _bbox(coast)
 	terrain.build(island.grow(80.0))
@@ -237,7 +237,7 @@ func generate_mainland(p_seed := 1207) -> CityLayout:
 				if not Geometry2D.is_polygon_clockwise(q) and CityRoads._area(q) > 30.0:
 					kept.append({"poly": q, "district": b["district"], "kind": "plaza"})
 		roads.blocks = kept
-	roads.bake_field(2.0)
+	roads.bake_field(1.25)
 	coast = roads.coast
 	island = _bbox(coast)
 	terrain.build(island.grow(80.0))

@@ -34,16 +34,16 @@ const BUST_R := 9.5
 
 ## Heat thresholds (seconds survived) – a starting point; wrecking units and
 ## escaping roadblocks push the clock forward (heat_bonus).
-const HEAT_AT := [0.0, 40.0, 100.0, 180.0, 280.0, 400.0]
-const HEAT_STEP_AFTER := 100.0
+const HEAT_AT := [0.0, 15.0, 35.0, 60.0, 90.0, 125.0]
+const HEAT_STEP_AFTER := 45.0
 ## Per heat: target physical units, total units en route, roles mix, kinds.
 const HEAT_PLAN := {
-	1: {"units": 1, "total": 1, "kinds": ["patrol"], "roles": ["pursuer"]},
-	2: {"units": 3, "total": 4, "kinds": ["patrol"], "roles": ["pursuer", "pursuer", "interceptor"]},
-	3: {"units": 5, "total": 8, "kinds": ["patrol", "patrol", "interceptor"], "roles": ["pursuer", "aggressor", "interceptor", "pursuer"]},
-	4: {"units": 7, "total": 14, "kinds": ["patrol", "interceptor", "heavy"], "roles": ["pursuer", "aggressor", "interceptor", "heavy", "blocker"]},
-	5: {"units": 10, "total": 22, "kinds": ["interceptor", "patrol", "heavy"], "roles": ["aggressor", "pursuer", "interceptor", "heavy", "blocker"]},
-	6: {"units": 13, "total": 34, "kinds": ["interceptor", "heavy", "patrol"], "roles": ["aggressor", "aggressor", "pursuer", "interceptor", "heavy", "blocker"]},
+	1: {"units": 3, "total": 4, "kinds": ["patrol"], "roles": ["pursuer", "pursuer", "interceptor"]},
+	2: {"units": 6, "total": 10, "kinds": ["patrol", "patrol", "interceptor"], "roles": ["pursuer", "aggressor", "interceptor", "pursuer"]},
+	3: {"units": 10, "total": 18, "kinds": ["patrol", "interceptor", "interceptor", "heavy"], "roles": ["pursuer", "aggressor", "interceptor", "heavy", "blocker"]},
+	4: {"units": 14, "total": 30, "kinds": ["patrol", "interceptor", "heavy"], "roles": ["aggressor", "aggressor", "pursuer", "interceptor", "heavy", "blocker"]},
+	5: {"units": 18, "total": 45, "kinds": ["interceptor", "patrol", "heavy"], "roles": ["aggressor", "aggressor", "pursuer", "interceptor", "heavy", "blocker"]},
+	6: {"units": 22, "total": 60, "kinds": ["interceptor", "heavy", "patrol", "interceptor"], "roles": ["aggressor", "aggressor", "pursuer", "interceptor", "heavy", "blocker"]},
 }
 
 var game: Node
@@ -109,8 +109,8 @@ func start(p_heat := 1) -> void:
 	heat_bonus = 0.0
 	bust = 0.0
 	busted_flag = false
-	_spawn_t = 2.5
-	_rb_t = 25.0
+	_spawn_t = 0.3
+	_rb_t = 16.0
 	stats = {"wrecked": 0, "roadblocks_escaped": 0, "spiked": 0, "max_units": 0}
 	dispatched = 0
 	_refresh_player_lane()
@@ -147,8 +147,8 @@ func plan() -> Dictionary:
 	var p: Dictionary = HEAT_PLAN[h].duplicate()
 	if heat > 6:
 		# Heat 7+: the whole city mobilises.
-		p["units"] = 13 + (heat - 6) * 2
-		p["total"] = 34 + (heat - 6) * 12
+		p["units"] = 22 + (heat - 6) * 3
+		p["total"] = 60 + (heat - 6) * 15
 	p["units"] = mini(p["units"], max_cars)
 	return p
 
@@ -277,24 +277,25 @@ func _dispatch(dt: float) -> void:
 	if _spawn_t > 0.0:
 		return
 	var p := plan()
-	_spawn_t = rng.randf_range(2.0, 4.5) / (1.0 + (heat - 1) * 0.25)
-	var alive := alive_count()
-	# Units en route (tier C) plus cars: keep the total topped up.
+	_spawn_t = rng.randf_range(0.6, 1.4) / (1.0 + (heat - 1) * 0.3)
+	# Units en route (tier C) plus cars: keep the total topped up, several
+	# at a time once the heat is on (the whole city converges fast).
 	var want_total: int = p["total"]
-	if alive >= want_total:
-		return
-	var kinds: Array = p["kinds"]
-	var roles: Array = p["roles"]
-	var role: String = roles[rng.randi() % roles.size()]
-	var kind: String = kinds[rng.randi() % kinds.size()]
-	if role == "heavy":
-		kind = "heavy" if heat >= 4 else "patrol"
-	var u := _new_unit(kind, role)
-	if u == null:
-		return
-	dispatched += 1
-	if dispatched == 1:
-		radio.emit("Unit responding. Suspect vehicle heading %s." % _compass(_player_heading()))
+	for k in clampi(1 + heat / 2, 1, 4):
+		if alive_count() >= want_total:
+			return
+		var kinds: Array = p["kinds"]
+		var roles: Array = p["roles"]
+		var role: String = roles[rng.randi() % roles.size()]
+		var kind: String = kinds[rng.randi() % kinds.size()]
+		if role == "heavy":
+			kind = "heavy" if heat >= 3 else "patrol"
+		var u := _new_unit(kind, role)
+		if u == null:
+			return
+		dispatched += 1
+		if dispatched == 1:
+			radio.emit("Units responding. Suspect vehicle heading %s." % _compass(_player_heading()))
 
 
 func _new_unit(kind: String, role: String) -> PoliceUnit:
@@ -680,10 +681,10 @@ func _cleanup(pp: Vector3) -> void:
 
 # ---------------------------------------------------------------- roadblocks
 func _roadblocks_update(dt: float) -> void:
-	if heat >= 3:
+	if heat >= 2:
 		_rb_t -= dt
 		if _rb_t <= 0.0:
-			_rb_t = rng.randf_range(32.0, 48.0) / (1.0 + (heat - 3) * 0.15)
+			_rb_t = rng.randf_range(20.0, 30.0) / (1.0 + (heat - 2) * 0.15)
 			_spawn_roadblock()
 	var pp := player.global_position
 	var keep: Array = []
@@ -766,7 +767,7 @@ func _spawn_roadblock() -> void:
 		u.spawn_time = time
 		units.append(u)
 		(rb["units"] as Array).append(u.id)
-	if heat >= 4:
+	if heat >= 3:
 		var sp := SpikeStrip.new()
 		sp.player = player
 		add_child(sp)
@@ -780,7 +781,7 @@ func _spawn_roadblock() -> void:
 
 # ---------------------------------------------------------------- helicopter
 func _heli_update() -> void:
-	if heat >= 4 and heli == null:
+	if heat >= 3 and heli == null:
 		heli = PoliceHeli.new()
 		heli.target = player
 		add_child(heli)

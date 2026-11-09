@@ -12,19 +12,19 @@ enum Quality { LOW, MEDIUM, HIGH }
 ## full physics before the pursuit downgrades the farthest to a lighter tier.
 const PRESETS := {
 	Quality.LOW: {
-		"fps": 30, "render_scale": 0.7, "shadows": false, "view_distance": 650.0,
+		"fps": 30, "render_scale": 0.8, "shadows": false, "view_distance": 650.0, "fsr": true, "shadow_map": 2048,
 		"msaa": Viewport.MSAA_DISABLED, "fog": true, "props": 0.5, "traffic": 0.5, "glow": false,
-		"civilians": 14, "cars_near": 8, "debris": 24, "lights": 2,
+		"civilians": 14, "cars_near": 12, "debris": 24, "lights": 2,
 	},
 	Quality.MEDIUM: {
-		"fps": 60, "render_scale": 0.85, "shadows": true, "view_distance": 900.0,
-		"msaa": Viewport.MSAA_2X, "fog": true, "props": 0.8, "traffic": 0.75, "glow": true,
-		"civilians": 22, "cars_near": 12, "debris": 48, "lights": 4,
+		"fps": 60, "render_scale": 1.0, "shadows": true, "view_distance": 900.0, "fsr": false, "shadow_map": 4096,
+		"msaa": Viewport.MSAA_4X, "fog": true, "props": 0.8, "traffic": 0.75, "glow": true,
+		"civilians": 22, "cars_near": 18, "debris": 48, "lights": 4,
 	},
 	Quality.HIGH: {
-		"fps": 60, "render_scale": 1.0, "shadows": true, "view_distance": 1200.0,
+		"fps": 60, "render_scale": 1.0, "shadows": true, "view_distance": 1200.0, "fsr": false, "shadow_map": 4096,
 		"msaa": Viewport.MSAA_4X, "fog": true, "props": 1.0, "traffic": 1.0, "glow": true,
-		"civilians": 30, "cars_near": 16, "debris": 80, "lights": 6,
+		"civilians": 30, "cars_near": 24, "debris": 80, "lights": 6,
 	},
 }
 
@@ -78,8 +78,15 @@ func apply() -> void:
 	Engine.max_fps = p["fps"]
 	var vp := get_viewport()
 	if vp:
+		# Full resolution on Medium/High (the old 85 % + bilinear upscale was
+		# what made phones look soft); Low upscales with FSR, not bilinear.
 		vp.scaling_3d_scale = p["render_scale"]
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if p.get("fsr", false) and p["render_scale"] < 1.0 \
+			else Viewport.SCALING_3D_MODE_BILINEAR
 		vp.msaa_3d = p["msaa"]
+		# Sharper anisotropic filtering of textures seen at grazing angles (roads).
+		vp.anisotropic_filtering_level = Viewport.ANISOTROPY_8X if quality != Quality.LOW else Viewport.ANISOTROPY_2X
+		RenderingServer.directional_shadow_atlas_set_size(int(p.get("shadow_map", 2048)), true)
 	changed.emit()
 
 

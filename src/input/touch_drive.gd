@@ -5,7 +5,7 @@ extends Control
 ##  * Steering (left 45% of the screen), three modes (Settings.steer_mode):
 ##      "zones"  default: put a thumb down anywhere on the left side and slide
 ##               it – steering is the horizontal offset from where it landed
-##               (analog, small dead zone, full lock at ~105 px). Lift = centre.
+##               (analog, small dead zone, full lock at ~85 px). Lift = centre.
 ##      "buttons" two big ◀ ▶ pads, bottom-left (digital, ramped by DriveInput).
 ##      "tilt"   tip the phone like a wheel (accelerometer).
 ##  * Right side, pedals under the right thumb: GAS (tall, far right) and
@@ -28,7 +28,7 @@ var _steer_pos := Vector2.ZERO
 var _btn_touch := {}           # touch index -> button name
 var _pressed := {}             # button -> true
 var _rects := {}
-const FULL_LOCK_PX := 105.0
+const FULL_LOCK_PX := 85.0
 const DEAD_PX := 5.0
 const PEDALS := ["gas", "brake"]
 

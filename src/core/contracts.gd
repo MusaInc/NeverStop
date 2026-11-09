@@ -73,7 +73,7 @@ func _make(slot: int) -> Dictionary:
 	var used := active.map(func(c): return c["kind"])
 	var kinds: Array = KINDS.keys().filter(func(k): return not (k in used))
 	# Roadblocks only appear once the pursuit sets them up.
-	if score and score.director and score.director.heat < 3:
+	if score and score.director and score.director.heat < 2:
 		kinds.erase("roadblock")
 	var kind: String = kinds[_rng.randi() % kinds.size()]
 	var k: Array = KINDS[kind]
