@@ -1,5 +1,31 @@
 # Status: 2026-11-11 (0.4.0)
 
+## 0.4.1: smart stick, harder-hitting crashes, water and ghost-police fixes
+
+- **Smart stick** (Settings → Right hand → Smart stick, the default). Thumb down
+  anywhere on the right half = gas; drag down = brake (held = reverse), up = gas
+  + NOS (cars with nitro), sideways = drift (and steers, if the left thumb is
+  free). Diagonals combine. A haptic tick marks each zone. "Pedals" and "Auto
+  gas" are still there. JUMP / DROP sit up the right edge.
+- **Rams** (`Game._ram`): driving into a car (closing ≥ 6 m/s, us the faster one)
+  shoves and spins it with a pop, gives back part of our speed, hit-stop + lens
+  punch, a low crunch layer, the victim's paint flying, a panel ripped off on
+  big hits, and SLAM / BIG SLAM / SMASH points without breaking the chain. A cop
+  wrecked within 1.5 s of contact = TAKEDOWN with a short slow-motion beat. Time
+  effects are off with Reduce motion and in headless runs.
+- **Water**: the collision floor sits 1.4 m under the surface, so cars used to
+  drive about on the bottom. Now `Car.in_water`: engine dead, heavy drag, a
+  splash; the player is fished back onto a dry road after 1.4 s, police are
+  written off, sunk civilians recycled.
+- **Ghost police**: units on the road graph (over the car budget, or waiting to
+  come in out of view) used to drive right up to the player with no car, which
+  left map dots with nothing there (and civilians pulled over for them). They now
+  hold 150 m out, slip to an out-of-view spot if the player drives up to them,
+  and show on the minimap as hollow rings. `test_2b` counts ghosts (0) and wet
+  police (0); `test_2d_water_and_ramming` is new.
+- Needs a person: stick thresholds on a real iPad / iPhone; whether hit-stop
+  feels punchy or stuttery.
+
 ## 0.4.0: iPad, police fixes, breakable cars, repair stations, the Workshop
 
 - **iPad.** The iOS build now targets iPhone and iPad (`targeted_device_family=2`, Xcode `TARGETED_DEVICE_FAMILY = "1,2"`,

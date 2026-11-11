@@ -28,6 +28,7 @@ signal landed(airtime: float, impact_speed: float)
 signal wrecked
 signal part_lost(part: String, at: Vector3, normal: Vector3)
 signal repaired
+signal splashed(at: Vector3, speed: float)
 
 ## Body panels that can come off, and the impact side that wears each one.
 ## (Plates only exist with Workshop armour plating; they take the hit first.)
@@ -102,6 +103,15 @@ var _impacts: Array = []       # filled in _integrate_forces, handled in _physic
 var _steps: Array = []         # low contacts with the world: [at, normal, dv]
 var _time := 0.0
 var visual: Node3D             # CarVisual (optional)
+## Water: the sea / river surface is at WATER_Y and its collision floor sits
+## ~1.4 m under it, so a car that goes in would otherwise drive about on the
+## bottom. In the water the engine is dead and the car wallows to a stop;
+## whoever owns the car (Game / PursuitDirector / CivilianTraffic) reacts to
+## `in_water` / `water_t` (recover, write off, recycle).
+const WATER_Y := -1.6
+static var water_check := Callable()   # (Vector3) -> bool, set by Game
+var in_water := false
+var water_t := 0.0
 
 
 func setup(p_spec: Dictionary, p_role := "player") -> void:
@@ -289,7 +299,8 @@ func _physics_process(dt: float) -> void:
 	if immortal:
 		power_scale = maxf(power_scale, 0.62)  # beaten up, never dead
 	jump_cd = maxf(0.0, jump_cd - dt)
-	var thr := 0.0 if disabled else throttle
+	_check_water(dt)
+	var thr := 0.0 if disabled or in_water else throttle
 	var brk := 1.0 if disabled else brake
 	var str_in := 0.0 if disabled else steer
 	# Front-end damage pulls the steering (misalignment) – correctable.
@@ -591,6 +602,12 @@ func _physics_process(dt: float) -> void:
 	climbed_kerb = maxf(0.0, climbed_kerb - dt)
 	_handle_steps()
 	_handle_impacts()
+	if in_water:
+		# Wallow: heavy drag, no grip to speak of.
+		var wv := linear_velocity
+		var wk := exp(-2.2 * dt)
+		linear_velocity = Vector3(wv.x * wk, minf(wv.y, 1.0), wv.z * wk)
+		angular_velocity *= exp(-1.5 * dt)
 	scraping = move_toward(scraping, 0.0, dt * 4.0)
 	_prev_vel = vel
 	Prof.end("car")
@@ -775,6 +792,21 @@ func _handle_impacts() -> void:
 		wrecked.emit()
 
 
+func _check_water(dt: float) -> void:
+	var p := global_position
+	var wet := p.y < WATER_Y + 0.5 and water_check.is_valid() and bool(water_check.call(p))
+	if wet and not in_water:
+		splashed.emit(p, linear_velocity.length())
+	in_water = wet
+	water_t = water_t + dt if wet else 0.0
+
+
+## Velocity on the step before this one (= just before an impact, when read
+## from an `impact` handler).
+func vel_before() -> Vector3:
+	return _prev_vel
+
+
 func _wear_part(pn: String, k: float, at: Vector3, n: Vector3) -> void:
 	var before: float = parts.get(pn, 0.0)
 	if before <= 0.0:
@@ -800,3 +832,5 @@ func place(xf: Transform3D, vel := Vector3.ZERO) -> void:
 	upside_time = 0.0
 	_impacts.clear()
 	_steps.clear()
+	in_water = false
+	water_t = 0.0

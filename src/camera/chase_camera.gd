@@ -73,6 +73,12 @@ func kick_fov(deg: float) -> void:
 	_fov_kick = maxf(_fov_kick, deg)
 
 
+## A hit: the lens snaps in (negative FOV) and eases back out.
+func punch(deg: float) -> void:
+	if not reduce_motion and absf(deg) > absf(_fov_kick):
+		_fov_kick = deg
+
+
 func orbit(from_angle := 0.0) -> void:
 	mode = "orbit"
 	_orbit_angle = from_angle

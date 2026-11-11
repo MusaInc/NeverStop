@@ -360,7 +360,7 @@ func test_2b_police_stay_sane() -> void:
 	var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.new()
 	q.collision_mask = Car.RAY_MASK
-	var counts := {"fell": 0, "inside": 0, "offroad": 0, "stuck": 0, "hidden": 0, "marker": 0, "samples": 0}
+	var counts := {"fell": 0, "inside": 0, "offroad": 0, "stuck": 0, "hidden": 0, "marker": 0, "samples": 0, "ghost": 0, "wet": 0}
 	var stuck_t := {}
 	var off_t := {}
 	var box := PhysicsShapeQueryParameters3D.new()
@@ -377,11 +377,17 @@ func test_2b_police_stay_sane() -> void:
 		var pp: Vector3 = game.player.global_position
 		for u: PoliceUnit in d.units:
 			if not u.car:
-				# Virtual units: their marker should be on a road.
+				# Virtual units: their marker should be on a road, and never
+				# right by the player (a dot with no car you can see).
 				var nv: Dictionary = game.net.nearest(u.pos, Vector3.ZERO, 30.0)
 				if nv.is_empty():
 					counts["marker"] += 1
+				if u.alive() and u.pos.distance_to(pp) < 110.0:
+					counts["ghost"] += 1
+					note("ghost unit %d %s %.0f m from the player" % [u.id, u.state, u.pos.distance_to(pp)])
 				continue
+			if u.car.water_t > 3.0:
+				counts["wet"] += 1
 			var c: Car = u.car
 			counts["samples"] += 1
 			if not c.visible or c.freeze or c.global_position.y < -100.0:
@@ -425,6 +431,83 @@ func test_2b_police_stay_sane() -> void:
 	check(counts["stuck"] <= 2, "police don't sit stuck")
 	check(counts["offroad"] <= 2, "police don't wander off-road")
 	check(counts["marker"] == 0, "minimap markers are on roads")
+	check(counts["ghost"] <= 3, "no invisible police near the player (map dot without a car)")
+	check(counts["wet"] == 0, "no police car drives about under the water")
+
+
+## Water: a car that goes into the river / sea doesn't drive about on the
+## bottom – it stalls, splashes and the player is fished back onto a road.
+## Ramming: driving into a police car shoves it, keeps our speed, scores.
+func test_2d_water_and_ramming() -> void:
+	await _start(3, false)
+	var pl: Car = game.player
+	var wp := Vector3.INF
+	for w in game.layout.water:
+		var r: Rect2 = w
+		var c := r.get_center()
+		if r.size.x > 40.0 and r.size.y > 40.0 and game.layout.is_water(Vector3(c.x, 0, c.y)):
+			wp = Vector3(c.x, 1.0, c.y)
+			break
+	check(wp != Vector3.INF, "found open water")
+	var splashed := [false]
+	pl.splashed.connect(func(_a, _s): splashed[0] = true)
+	pl.place(Transform3D(Basis(), wp), Vector3(0, 0, -15))
+	var was_wet := false
+	var back := false
+	for i in 60 * 5:
+		await get_tree().physics_frame
+		was_wet = was_wet or pl.in_water
+		if was_wet and not pl.in_water and pl.global_position.y > Car.WATER_Y + 0.5:
+			back = true
+			break
+	await _frames(30)
+	var nr: Dictionary = game.net.nearest(pl.global_position, Vector3.ZERO, 20.0)
+	note("water: splashed %s, wet %s, back %s at %s" % [splashed[0], was_wet, back, pl.global_position.snapped(Vector3.ONE)])
+	check(splashed[0] and was_wet, "driving into the water splashes")
+	check(back and not nr.is_empty() and not pl.in_water, "the player is put back on a dry road")
+	# Ramming.
+	await _start(3, false)
+	pl = game.player
+	var cop: Car = null
+	for i in 60 * 25:
+		await get_tree().physics_frame
+		for u in game.director.units:
+			if u.car and u.alive():
+				cop = u.car
+				break
+		if cop:
+			break
+	check(cop != null, "a police car to ram")
+	if cop == null:
+		return
+	var labels: Array = []
+	game.score.event.connect(func(l, _p, _c): labels.append(l))
+	var xf: Transform3D = pl.global_transform
+	var fwd := -xf.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var cp := xf.origin + fwd * 16.0
+	cop.place(Transform3D(Basis.looking_at(fwd.cross(Vector3.UP), Vector3.UP), cp + Vector3.UP * 0.3))
+	pl.place(Transform3D(Basis.looking_at(fwd, Vector3.UP), xf.origin + Vector3.UP * 0.3), fwd * 26.0)
+	var hit := false
+	var cop_v := 0.0
+	var pl_v := 0.0
+	for i in 60 * 2:
+		pl.throttle = 1.0
+		await get_tree().physics_frame
+		if not hit and pl.global_position.distance_to(cop.global_position) < 4.5:
+			hit = true
+		if hit and i % 6 == 0:
+			cop_v = maxf(cop_v, cop.linear_velocity.length())
+		if labels.has("SLAM") or labels.has("BIG SLAM"):
+			await _frames(10)
+			cop_v = maxf(cop_v, cop.linear_velocity.length())
+			pl_v = pl.linear_velocity.length()
+			break
+	note("ram: labels %s, cop thrown at %.1f m/s, player kept %.1f m/s, cop panels %s" % [labels, cop_v, pl_v, cop.parts_lost()])
+	check(labels.has("SLAM") or labels.has("BIG SLAM"), "ramming a police car scores a SLAM")
+	check(cop_v > 9.0, "the rammed car is thrown")
+	check(pl_v > 9.0, "the rammer keeps going")
 
 
 ## Repair stations: always 3-6 live, spread out, far from the player when
@@ -455,7 +538,7 @@ func test_2c_repairs_and_battle_kit() -> void:
 	p.dmg["front"] = 0.8
 	p._wear_part("bumper_f", 2.0, p.global_position, Vector3.FORWARD)
 	p._wear_part("door_l", 2.0, p.global_position, Vector3.LEFT)
-	check(p.parts_lost() == 2, "two panels off")
+	check(p.parts["bumper_f"] <= 0.0 and p.parts["door_l"] <= 0.0, "panels knocked off")
 	var target := rp.nearest(p.global_position)
 	var before := rp.collected_count
 	game.bot = null

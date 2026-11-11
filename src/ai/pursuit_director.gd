@@ -30,6 +30,10 @@ const SPAWN_MAX := 330.0
 const PROMOTE_R := 190.0      # C -> car when within this (and out of view)
 const DEMOTE_R := 380.0       # car -> C beyond this (out of view)
 const TIER_A_R := 90.0
+## Units still on the road graph (no car yet – over the physics budget, or
+## waiting to come in out of view) hold back this far from the player, so a
+## minimap dot near the player is always a car you can actually see.
+const HOLD_R := 150.0
 const BUST_R := 9.5
 
 ## Heat thresholds (seconds survived) – a starting point; wrecking units and
@@ -201,7 +205,7 @@ func _physics_process(dt: float) -> void:
 	var pp := player.global_position
 	for u in units:
 		_update_unit(u, dt, space, pp)
-	_tiers(pp)
+	_tiers(pp, dt)
 	_roadblocks_update(dt)
 	_heli_update()
 	_bust_update(dt, pp)
@@ -377,7 +381,7 @@ func _update_unit(u: PoliceUnit, dt: float, space: PhysicsDirectSpaceState3D, pp
 	if u.car:
 		var c := u.car
 		# Out of the chase: destroyed, on its roof, or beached for good.
-		if c.disabled or c.upside_time > 2.0 or c.health < 0.12 or (c.stuck_time > 6.0 and c.health < 0.6):
+		if c.disabled or c.upside_time > 2.0 or c.health < 0.12 or (c.stuck_time > 6.0 and c.health < 0.6) or c.water_t > 0.8:
 			_wreck(u)
 			return
 		if u.state != "roadblock" and _watchdog(u, dt, pp):
@@ -553,6 +557,8 @@ func _advance_virtual(u: PoliceUnit, dt: float) -> void:
 	var f := intercept_field if (u.state == "intercept" and intercept_field) else chase_field
 	if f == null or u.lane < 0:
 		return
+	if player and u.pos.distance_to(player.global_position) < HOLD_R:
+		return
 	var step := u.road_speed * dt
 	u.s += step
 	if u.s >= net.lane_len[u.lane] - 0.5 or net.node_after(u.lane, u.s) >= 0:
@@ -577,7 +583,7 @@ func _advance_virtual(u: PoliceUnit, dt: float) -> void:
 
 
 ## Promote / demote between road-graph points and physical cars.
-func _tiers(pp: Vector3) -> void:
+func _tiers(pp: Vector3, dt := 0.0) -> void:
 	var cars := physical_count()
 	var p := plan()
 	var want_cars: int = p["units"]
@@ -596,13 +602,45 @@ func _tiers(pp: Vector3) -> void:
 			virt.append(u)
 	virt.sort_custom(func(a, b): return a.pos.distance_squared_to(pp) < b.pos.distance_squared_to(pp))
 	for u: PoliceUnit in virt:
-		if cars >= want_cars:
-			break
 		var d := u.pos.distance_to(pp)
-		if d < PROMOTE_R or (d < SPAWN_MAX and cars < mini(want_cars, 2)):
+		if cars < want_cars and (d < PROMOTE_R or (d < SPAWN_MAX and cars < mini(want_cars, 2))):
 			if not _visible(u.pos + Vector3.UP) and d > 45.0 and _clear(u.pos):
 				_promote(u)
 				cars += 1
+				continue
+		# A unit with no car must not sit by the player (a map dot with
+		# nothing there): if the player drove up to it, or it has waited in
+		# plain view, it slips round to an out-of-view spot at the hold ring.
+		u.hold_t = u.hold_t + dt if d < HOLD_R + 5.0 else 0.0
+		if d < HOLD_R - 25.0 or u.hold_t > 3.0:
+			_reposition(u, pp)
+			u.hold_t = 0.0
+
+
+## Moves a virtual unit to a lane point HOLD_R..HOLD_R+70 m from the player,
+## out of the camera's view (behind or beside it), if one can be found.
+func _reposition(u: PoliceUnit, pp: Vector3) -> void:
+	var back := Vector3.BACK
+	if camera and camera.cam:
+		back = camera.cam.global_basis.z
+		back.y = 0.0
+		back = back.normalized() if back.length() > 0.01 else Vector3.BACK
+	for k in 8:
+		var a := (k / 2) * 0.45 * (1.0 if k % 2 == 0 else -1.0)
+		var dir := back.rotated(Vector3.UP, a)
+		var probe := pp + dir * (HOLD_R + 30.0)
+		var nr := net.nearest(probe, Vector3.ZERO, 50.0, -1, true)
+		if nr.is_empty():
+			continue
+		var p: Vector3 = nr["pos"]
+		var d := p.distance_to(pp)
+		if d < HOLD_R or d > HOLD_R + 70.0 or _visible(p + Vector3.UP):
+			continue
+		u.lane = nr["lane"]
+		u.s = nr["s"]
+		u.pos = p
+		u.heading = net.lane_dir(u.lane, u.s)
+		return
 
 
 func _clear(p: Vector3) -> bool:
@@ -731,7 +769,8 @@ func _cleanup(pp: Vector3) -> void:
 	for i in wrecks.size():
 		var u: PoliceUnit = wrecks[i]
 		var far := u.car.global_position.distance_to(pp) > 160.0 and not _visible(u.car.global_position + Vector3.UP)
-		if far or (i < wrecks.size() - max_wrecks and u.wrecked_t > 4.0):
+		var sunk := u.car.in_water and u.wrecked_t > 4.0
+		if far or sunk or (i < wrecks.size() - max_wrecks and u.wrecked_t > 4.0):
 			_return_car(u)
 	var keep: Array[PoliceUnit] = []
 	for u in units:
@@ -887,7 +926,7 @@ func nearby_police(p: Vector3, r: float) -> int:
 func unit_markers() -> Array:
 	var out: Array = []
 	for u in units:
-		out.append([u.world_pos(), u.kind, u.state])
+		out.append([u.world_pos(), u.kind, u.state, u.car != null])
 	return out
 
 

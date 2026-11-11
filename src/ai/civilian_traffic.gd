@@ -192,7 +192,8 @@ func _physics_process(dt: float) -> void:
 		var car: Car = c["car"]
 		if c["wrecked"]:
 			c["t_wreck"] += dt
-			if c["t_wreck"] > 6.0 and car.global_position.distance_to(pp) > 120.0 and not _on_screen(car.global_position):
+			var sunk := car.in_water and float(c["t_wreck"]) > 4.0
+			if sunk or (c["t_wreck"] > 6.0 and car.global_position.distance_to(pp) > 120.0 and not _on_screen(car.global_position)):
 				_respawn(c, pp)
 			continue
 		# Distance to the nearest thing ahead in our lane.
@@ -208,7 +209,7 @@ func _physics_process(dt: float) -> void:
 		for m in police:
 			var mp: Vector3 = m[0]
 			var rel := mp - car.global_position
-			if rel.length() < 40.0 and rel.dot(fwd) < 0.0 and m[2] != "wrecked" and m[2] != "roadblock":
+			if m[3] and rel.length() < 40.0 and rel.dot(fwd) < 0.0 and m[2] != "wrecked" and m[2] != "roadblock":
 				pull = 2.6
 				target = minf(target, 5.0)
 		c["offset"] = move_toward(float(c["offset"]), pull, dt * 1.2)

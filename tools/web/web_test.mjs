@@ -56,7 +56,8 @@ await new Promise(r => setTimeout(r, 2500));
 s = await waitFor(v => v?.state === "playing", 5000);
 check((s?.speed ?? 99) < 8, `the car waits for GAS (${(s?.speed ?? 0).toFixed(0)} km/h)`);
 if (engine === "chromium") {
-  await down(9, ...at(...s.touch_buttons.gas));
+  // Smart stick: a thumb down anywhere on the right half is GAS.
+  await down(9, ...at(...(s.touch_buttons.stick ?? s.touch_buttons.gas)));
   s = await waitFor(v => (v?.speed ?? 0) > 15, 60000);
   check((s?.speed ?? 0) > 15 && (s?.throttle ?? 0) > 0.5, `holding GAS accelerates (${(s?.speed ?? 0).toFixed(0)} km/h)`);
 }
@@ -71,16 +72,22 @@ if (engine === "chromium") {
   await move(1, p0[0] - 70 * k, p0[1]);
   s = await waitFor(v => (v?.steer ?? 0) < -0.3, 20000);
   check((s?.steer ?? 0) < -0.3, `and left (${(s?.steer ?? 0).toFixed(2)})`);
-  // Brake with a second finger while still steering.
-  const brake = at(...s.touch_buttons.brake);
-  await down(2, ...brake);
+  // Brake with the right thumb (drag the stick down) while still steering.
+  const st = at(...s.touch_buttons.stick);
+  await move(9, st[0], st[1] + s.touch_buttons.stick_r * rect.h);
   s = await waitFor(v => (v?.brake ?? 0) > 0.5, 20000);
-  check((s?.brake ?? 0) > 0.5 && (s?.steer ?? 0) < -0.3, "BRAKE with another finger, steering kept");
+  check((s?.brake ?? 0) > 0.5 && (s?.steer ?? 0) < -0.3, "stick dragged down brakes, steering kept");
   await shot("3_brake_steer");
-  await up(2);
+  await up(9);
   await up(1);
   s = await waitFor(v => Math.abs(v?.steer ?? 1) < 0.05 && (v?.brake ?? 1) < 0.1, 20000);
   check(Math.abs(s?.steer ?? 1) < 0.05, "lifting the fingers centres the steering and releases the brake");
+  // Sideways on the stick (left thumb free) = drift + steer.
+  await down(9, ...st);
+  await move(9, st[0] + s.touch_buttons.stick_r * rect.h, st[1]);
+  s = await waitFor(v => (v?.handbrake ?? false) && (v?.steer ?? 0) > 0.3, 20000);
+  check(s?.handbrake && (s?.steer ?? 0) > 0.3, "stick dragged sideways drifts that way");
+  await up(9);
 }
 await page.waitForTimeout(4000);
 s = await state();

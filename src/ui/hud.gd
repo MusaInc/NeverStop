@@ -73,6 +73,10 @@ func part_gone(name: String) -> void:
 	_event(name + " GONE", 0, 1.0)
 
 
+func notice(text: String) -> void:
+	_event(text, 0, 1.0)
+
+
 func contract_done(c: Dictionary) -> void:
 	_done_pop = "CONTRACT COMPLETE  +$%d" % int(c["cash"])
 	_done_pop_t = 2.0
@@ -84,10 +88,10 @@ func start_coach(on: bool) -> void:
 	if not on:
 		return
 	if Settings.accelerate != "auto":
-		_coach.append(["Hold GAS to drive", "Hold W / ↑ (or RT) to drive", "gas", 1.0])
+		_coach.append(["Hold your right thumb down to drive" if Settings.right_mode == "stick" else "Hold GAS to drive", "Hold W / ↑ (or RT) to drive", "gas", 1.0])
 	_coach.append(["Slide your left thumb to steer", "Steer with A / D (or ← →)", "steer", 0.0])
-	_coach.append(["BRAKE to slow down · hold it when stopped to reverse", "S / ↓ to brake · hold it when stopped to reverse", "brake", 0.35])
-	_coach.append(["Hold DRIFT through a corner to slide", "Hold SPACE through a corner to drift", "drift", 0.5])
+	_coach.append(["Drag the right thumb DOWN to brake · keep it there to reverse" if Settings.right_mode == "stick" else "BRAKE to slow down · hold it when stopped to reverse", "S / ↓ to brake · hold it when stopped to reverse", "brake", 0.35])
+	_coach.append(["Drag the right thumb SIDEWAYS through a corner to drift" if Settings.right_mode == "stick" else "Hold DRIFT through a corner to slide", "Hold SPACE through a corner to drift", "drift", 0.5])
 	_coach.append(["They will catch you. Survive as long as you can.", "They will catch you. Survive as long as you can.", "wait", 4.0])
 	_coach.append(["Contracts (left) pay extra cash. Go!", "Contracts (left) pay extra cash. Go!", "wait", 4.0])
 	_coach_i = 0
@@ -195,6 +199,8 @@ func _process(dt: float) -> void:
 				var kind: String = m[1]
 				if m[2] == "wrecked":
 					kind = "wreck"
+				elif not m[3]:
+					kind = "enroute"  # no car yet: a hollow ring, not a dot
 				ms.append([m[0], kind])
 			for rb in director.roadblocks:
 				if not rb["passed"]:

@@ -562,10 +562,13 @@ func _build_help() -> void:
 	left.custom_minimum_size.x = 520
 	cols.add_child(left)
 	left.add_child(_label("CONTROLS", 14, UiStyle.AMBER, "black"))
-	var gas := "GAS pedal (right)" if Settings.accelerate != "auto" else "automatic"
+	var stick := Settings.right_mode == "stick"
+	var gas := ("hold right side" if stick else "GAS pedal (right)") if Settings.accelerate != "auto" else "automatic"
 	for row in [["", "Touch", "Keys", "Pad"], ["Accelerate", gas, "W / ↑", "RT"],
-			["Steer", "slide left thumb", "A D / ← →", "stick"], ["Brake / reverse", "BRAKE pedal", "S / ↓", "LT"],
-			["Drift", "DRIFT", "Space", "A"], ["Nitro", "NOS", "Shift", "X"], ["Jump (kit)", "JUMP", "E", "B"],
+			["Steer", "slide left thumb", "A D / ← →", "stick"],
+			["Brake / reverse", "right: drag down" if stick else "BRAKE pedal", "S / ↓", "LT"],
+			["Drift", "right: drag sideways" if stick else "DRIFT", "Space", "A"],
+			["Nitro", "right: drag up" if stick else "NOS", "Shift", "X"], ["Jump (kit)", "JUMP", "E", "B"],
 			["Drop (kit)", "SPIKES / MINE", "Q", "LB"], ["Recover", "automatic", "R", "Y"],
 			["Pause", "II", "Esc", "Start"]]:
 		var hb := HBoxContainer.new()
@@ -690,8 +693,9 @@ func _build_settings() -> void:
 	_choice(grid, "Graphics", ["Low", "Medium", "High"], Settings.quality, func(i): Settings.quality = i; Settings.apply(); toast("Applies fully on the next chase"))
 	_choice(grid, "Steering", ["Slide", "Buttons", "Tilt"], ["zones", "buttons", "tilt"].find(Settings.steer_mode),
 		func(i): Settings.steer_mode = ["zones", "buttons", "tilt"][i]; game.touch.steer_mode = Settings.steer_mode)
-	_choice(grid, "Accelerate", ["Gas pedal", "Auto"], ["pedal", "auto"].find(Settings.accelerate),
-		func(i): Settings.accelerate = ["pedal", "auto"][i])
+	var rh := 2 if Settings.accelerate == "auto" else (0 if Settings.right_mode == "stick" else 1)
+	_choice(grid, "Right hand", ["Smart stick", "Pedals", "Auto gas"], rh,
+		func(i): Settings.right_mode = "pedals" if i == 1 else "stick"; Settings.accelerate = "auto" if i == 2 else "pedal"; game.touch.release_all())
 	_slider(grid, "Steering sensitivity", 0.5, 1.6, Settings.steer_sensitivity, func(x): Settings.steer_sensitivity = x)
 	_choice(grid, "Camera", ["Near", "Normal", "Far"], Settings.camera_distance, func(i): Settings.camera_distance = i; game.camera.distance_setting = i)
 	_choice(grid, "Time of day", ["Cycle", "Day", "Sunset", "Night"], ["cycle", "day", "sunset", "night"].find(Settings.time_of_day),

@@ -306,6 +306,19 @@ func _chunk(at: Vector3, normal: Vector3, strength: float, col: Color) -> void:
 	_debris.append([b, 0.0])
 
 
+## A car going into the water: a spray of white water.
+func splash(at: Vector3, speed: float) -> void:
+	var k := clampf(speed / 20.0, 0.3, 1.4)
+	for i in int(22 * k) + 6:
+		var v := Vector3(_rng.randf_range(-1, 1), 0.0, _rng.randf_range(-1, 1)).normalized() * _rng.randf_range(1.5, 5.0) * k \
+			+ Vector3.UP * _rng.randf_range(3.0, 8.0) * k
+		smoke.emit(at + Vector3(_rng.randf_range(-1.5, 1.5), 0.2, _rng.randf_range(-1.5, 1.5)), v,
+			_rng.randf_range(0.8, 1.6), 1.2, 1.6, Color(0.85, 0.92, 0.95, 0.6))
+	for i in int(16 * k):
+		sparks.emit(at + Vector3.UP * 0.3, Vector3(_rng.randf_range(-3, 3), _rng.randf_range(4, 9), _rng.randf_range(-3, 3)) * k,
+			_rng.randf_range(0.5, 1.0), 0.1, 0.04, Color(0.8, 0.9, 1.0, 0.8))
+
+
 ## A mine going off: a fireball, a ring of sparks and a column of smoke.
 func explosion(at: Vector3) -> void:
 	for i in 40:

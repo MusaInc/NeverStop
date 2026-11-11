@@ -42,6 +42,7 @@ var roadblock_id := -1
 var spawn_time := 0.0
 var close_time := 0.0         # seconds spent within 12 m of the player
 var hit_player_t := -10.0
+var hold_t := 0.0              # virtual and held near the player (see PursuitDirector._tiers)
 # Watchdog (director): seconds without progress / off the road / inside geometry.
 var idle_t := 0.0
 var off_t := 0.0

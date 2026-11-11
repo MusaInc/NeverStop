@@ -103,6 +103,7 @@ func _ready() -> void:
 	add_child(atmosphere)
 	var t0 := Time.get_ticks_msec()
 	layout = CityLayout.new().generate()
+	Car.water_check = layout.is_water
 	world = CityWorld.new()
 	world.name = "World"
 	world.layout = layout
@@ -164,7 +165,9 @@ func _ready() -> void:
 	speed_fx = sfx
 	hud.minimap.camera = camera
 	hud.minimap.bake.call_deferred(layout)
-	director.unit_wrecked.connect(func(u, _b): score.on_police_wrecked(u))
+	director.unit_wrecked.connect(func(u, _b):
+		score.on_police_wrecked(u)
+		_on_unit_wrecked(u))
 	director.roadblock_escaped.connect(score.on_roadblock_escaped)
 	director.busted.connect(_on_busted)
 	director.spiked.connect(func(): camera.shake(0.4))
@@ -294,6 +297,7 @@ func spawn_player(id: String) -> void:
 	camera.set_target(player, true)
 	player.impact.connect(_on_player_impact)
 	player.part_lost.connect(_on_part_lost)
+	player.splashed.connect(_on_player_splash)
 	player.landed.connect(func(a, v):
 		if score:
 			score.on_landed(a, v)
@@ -506,8 +510,9 @@ func _on_busted() -> void:
 
 
 func _on_player_impact(strength: float, at: Vector3, n: Vector3, other: Object) -> void:
+	var rammed := other is Car and _ram(strength, at, n, other as Car)
 	if score:
-		score.on_player_impact(strength, other)
+		score.on_player_impact(strength, other, rammed)
 	if strength > 14.0 and hud:
 		hud.flash(UiStyle.RED, clampf(strength / 60.0, 0.1, 0.4))
 	camera.shake(clampf(strength / 30.0, 0.1, 0.8))
@@ -516,6 +521,131 @@ func _on_player_impact(strength: float, at: Vector3, n: Vector3, other: Object) 
 	if fx and strength > 4.0:
 		fx.impact(at, n, strength, player.spec["paint"])
 	Settings.haptic(int(clampf(strength * 4.0, 20.0, 160.0)), clampf(strength / 25.0, 0.3, 1.0))
+
+
+## Ramming: when the player drives INTO another car (closing fast, us the
+## faster one), the hit lands like a hammer – the victim is shoved and spun
+## with a pop, we keep most of our speed, the game freezes for a beat
+## (hit-stop), the lens punches in, a heavy layered crunch, the victim's
+## paint and glass fly, and it scores (SLAM / SMASH) without breaking the
+## chain. Returns true when it counted as our ram.
+const RAM_MIN := 6.0           # closing speed (m/s) for a ram
+var _ram_cd := {}              # victim instance id -> _time of last ram
+var _stick_demo := false
+var _tfx_start := 0            # hit-stop / slow-mo, in real msec
+var _tfx_end := 0
+var _tfx_min := 1.0
+var _tfx_hold := 1.0           # share of the effect held at _tfx_min before easing back
+
+
+func _ram(strength: float, at: Vector3, n: Vector3, oc: Car) -> bool:
+	if state != State.PLAYING or oc.role == "player":
+		return false
+	var pv := player.vel_before()
+	var to := oc.global_position - player.global_position
+	to.y = 0.0
+	if to.length() < 0.1:
+		return false
+	to = to.normalized()
+	var closing := pv.dot(to) - oc.vel_before().dot(to)
+	if closing < RAM_MIN or pv.length() < oc.vel_before().length() * 0.8:
+		return false
+	var id := oc.get_instance_id()
+	if _time - float(_ram_cd.get(id, -10.0)) < 0.6:
+		return true
+	_ram_cd[id] = _time
+	var k := clampf((closing - RAM_MIN) / 22.0, 0.0, 1.0)
+	var weight := clampf(player.mass / maxf(oc.mass, 1.0), 0.6, 1.8) * float(player.spec.get("ram", 1.0))
+	var cop := oc.role == "police"
+	# Shove, pop and spin the victim (more for a T-bone than a rear-end).
+	var side := absf(to.dot(oc.global_basis.x))
+	var push := to * closing * (0.28 + 0.22 * k) * weight
+	oc.linear_velocity += push + Vector3.UP * (1.2 + 3.2 * k) * clampf(weight, 0.7, 1.4)
+	var spin_dir := signf(pv.cross(to).y + 0.001)
+	oc.angular_velocity += Vector3(randf_range(-0.6, 0.6) * k, spin_dir * (1.0 + 2.6 * side) * (0.5 + k) * weight, randf_range(-1.2, 1.2) * k)
+	# We barrel on: give back part of the speed the hit took.
+	var lost := pv.length() - player.linear_velocity.length()
+	if lost > 0.0:
+		player.linear_velocity += pv.normalized() * lost * (0.35 + 0.25 * k) * clampf(weight, 0.6, 1.3)
+	player.angular_velocity *= 0.6
+	# Big hits rip a panel off the victim on the side we hit.
+	if k > 0.35:
+		var local := oc.global_transform.affine_inverse() * at
+		var sz: Vector3 = oc.spec["size"]
+		var hit_side := ("right" if local.x > 0.0 else "left") if absf(local.x) / sz.x > absf(local.z) / sz.z \
+			else ("front" if local.z < 0.0 else "rear")
+		for pn in Car.SIDE_PARTS[hit_side]:
+			if oc.parts.get(pn, 0.0) > 0.0:
+				oc._wear_part(pn, 0.5 + k, at, -n)
+				break
+	# Feel.
+	var heavy := k > 0.25
+	camera.shake(0.25 + 0.45 * k)
+	camera.punch(-(3.0 + 7.0 * k))
+	if heavy:
+		_time_fx(0.06, 45.0 + 70.0 * k, 1.0)
+	if fx:
+		fx.impact(at, n, strength + 8.0 + 14.0 * k, oc.spec["paint"])
+	if audio:
+		# A low, heavy layer under the normal crash: weight.
+		audio.play("crash_heavy_%d" % (randi() % 3), -3.0 + 4.0 * k, randf_range(0.66, 0.78))
+		if heavy:
+			audio.play("glass", -8.0 + 4.0 * k, randf_range(0.95, 1.15))
+	Settings.haptic(int(60 + 120 * k), 0.6 + 0.4 * k)
+	if score and score.running:
+		if cop:
+			score.award("SLAM" if k < 0.6 else "BIG SLAM", 150.0 + 450.0 * k)
+		elif oc.role == "civilian":
+			score.award("SMASH", 40.0 + 120.0 * k)
+	return true
+
+
+## A cop wrecked by contact with us: TAKEDOWN – a short slow-motion beat.
+func _on_unit_wrecked(u: PoliceUnit) -> void:
+	if state != State.PLAYING or u.car == null:
+		return
+	if director.time - u.hit_player_t > 1.5:
+		return
+	score.award("TAKEDOWN", 500.0)
+	if hud:
+		hud.flash(UiStyle.AMBER, 0.25)
+	camera.shake(0.4)
+	camera.punch(-9.0)
+	_time_fx(0.3, 650.0, 0.35)
+	Settings.haptic(140, 1.0)
+
+
+## Hit-stop / slow-motion: drop the time scale to `scale` for `ms` of real
+## time (held for `hold` of it, then easing back). Off with Reduce motion and
+## in headless runs (tests measure simulated time).
+func _time_fx(scale: float, ms: float, hold: float) -> void:
+	if Settings.reduce_motion or DisplayServer.get_name() == "headless":
+		return
+	var now := Time.get_ticks_msec()
+	if now < _tfx_end and scale >= _tfx_min:
+		return  # a deeper effect is already running
+	_tfx_start = now
+	_tfx_end = now + int(ms)
+	_tfx_min = scale
+	_tfx_hold = hold
+	Engine.time_scale = scale
+
+
+func _update_time_fx() -> void:
+	if _tfx_end == 0:
+		return
+	var now := Time.get_ticks_msec()
+	if state != State.PLAYING:
+		_tfx_end = 0  # busted / menu own the time scale now
+		return
+	if now >= _tfx_end:
+		Engine.time_scale = 1.0
+		_tfx_end = 0
+		_tfx_min = 1.0
+		return
+	var t := float(now - _tfx_start) / float(maxi(_tfx_end - _tfx_start, 1))
+	var e := 0.0 if t < _tfx_hold else smoothstep(0.0, 1.0, (t - _tfx_hold) / maxf(1.0 - _tfx_hold, 0.001))
+	Engine.time_scale = lerpf(_tfx_min, 1.0, e)
 
 
 const PART_NAMES := {"bumper_f": "FRONT BUMPER", "bumper_r": "REAR BUMPER", "hood": "BONNET", "boot": "BOOT LID",
@@ -578,6 +708,11 @@ func _physics_process(dt: float) -> void:
 			recover_player()
 		elif player.stuck_time > 3.5 and not player.disabled and director.bust < 0.05:
 			recover_player()
+		elif player.water_t > 1.4:
+			# Into the river / the sea: back onto the nearest dry road.
+			recover_player()
+			if hud and state == State.PLAYING:
+				hud.notice("FISHED OUT OF THE WATER")
 	if state == State.PLAYING and Input.is_action_just_pressed("pause") and Engine.get_process_frames() - _resumed_frame > 1:
 		pause()
 	if state == State.MENU and bot and player.disabled:
@@ -604,9 +739,21 @@ func _notification(what: int) -> void:
 		SaveData.save()
 
 
+func _on_player_splash(at: Vector3, sp: float) -> void:
+	if fx:
+		fx.splash(Vector3(at.x, Car.WATER_Y, at.z), sp)
+	if audio:
+		audio.play("crash_heavy_%d" % (randi() % 3), -6.0, 0.55)
+	camera.shake(0.3)
+	Settings.haptic(80, 0.7)
+
+
 ## Puts the car back on the nearest lane facing along it (context recovery).
+## Never onto a lane over water (a dry road the car can actually drive).
 func recover_player() -> void:
 	var near := net.nearest(player.global_position, -player.global_basis.z, 60.0, -1, true)
+	if not near.is_empty() and layout.is_water(near["pos"]) and (near["pos"] as Vector3).y < Car.WATER_Y + 1.0:
+		near = {}
 	if near.is_empty():
 		near = net.nearest(player.global_position, Vector3.ZERO, 300.0)
 	if near.is_empty():
@@ -668,7 +815,7 @@ func _publish_web(dt: float) -> void:
 	var st := {
 		"state": ["menu", "playing", "paused", "busted", "garage"][state],
 		"screen": menus.current if menus else "",
-		"speed": player.speed * 3.6, "steer": player.steer, "brake": player.brake, "throttle": player.throttle,
+		"speed": player.speed * 3.6, "steer": player.steer, "brake": player.brake, "throttle": player.throttle, "handbrake": player.handbrake,
 		"heat": director.heat, "police": director.alive_count(), "cars": director.physical_count(),
 		"score": score.score, "time": score.time, "bust": director.bust, "touch": touch.visible,
 		"fps": Engine.get_frames_per_second(),
@@ -680,6 +827,22 @@ func _publish_web(dt: float) -> void:
 
 
 func _process(_dt: float) -> void:
+	_update_time_fx()
+	if args.has("stick") and state == State.PLAYING and touch.visible and _time > 1.0 and not _stick_demo:
+		# Captures: hold the smart stick at an offset (--stick=dx,dy in px).
+		_stick_demo = true
+		var o := str(args["stick"]).split(",")
+		var h := touch.stick_home()
+		var to_win := get_viewport().get_final_transform()
+		var ev := InputEventScreenTouch.new()
+		ev.index = 7
+		ev.position = to_win * h
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		var dr := InputEventScreenDrag.new()
+		dr.index = 7
+		dr.position = to_win * (h + Vector2(float(o[0]), float(o[1] if o.size() > 1 else "0")))
+		Input.parse_input_event(dr)
 	if OS.has_feature("web") and (OS.is_debug_build() or args.has("debug")):
 		_publish_web(_dt)
 	if args.has("selftest"):

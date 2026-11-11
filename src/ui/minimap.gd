@@ -174,6 +174,9 @@ func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
 			ov.draw_arc(p, 5.0, t * 9.0 + PI, t * 9.0 + PI * 1.7, 8, UiStyle.WHITE, 1.6, true)
 		"wreck":
 			ov.draw_circle(p, 2.6, Color(0.6, 0.6, 0.62, 0.7))
+		"enroute":
+			# Backup on its way (not on the streets near you yet).
+			ov.draw_arc(p, 3.4, 0.0, TAU, 14, Color(UiStyle.RED, 0.7), 1.4, true)
 		"repair", "repair_pin":
 			# A green plus on a dark disc (pulsing when it's the nearest).
 			var pr := 7.0 + (1.0 + sin(t * 5.0)) * (1.0 if kind == "repair_pin" else 0.0)

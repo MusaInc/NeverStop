@@ -129,10 +129,11 @@ func on_landed(airtime: float, _impact: float) -> void:
 		award("AIR %.1fs" % airtime, (250.0 * airtime * airtime + 100.0) * _perk("score_air"))
 
 
-func on_player_impact(strength: float, other: Object) -> void:
+func on_player_impact(strength: float, other: Object, rammed := false) -> void:
 	if not running:
 		return
-	if strength > 11.0:
+	# Ramming something on purpose keeps the chain going; being hit breaks it.
+	if strength > 11.0 and not rammed:
 		break_chain()
 	# Contact cancels a near miss in progress.
 	if other:
