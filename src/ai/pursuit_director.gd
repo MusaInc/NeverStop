@@ -324,22 +324,53 @@ func _new_unit(kind: String, role: String) -> PoliceUnit:
 	u.state = "intercept" if role == "interceptor" else "respond"
 	units.append(u)
 	if audit.size() < 500:
-		audit.append(["spawn", u.pos.distance_to(player.global_position), _visible(u.pos + Vector3.UP)])
+		audit.append(["spawn", u.pos.distance_to(player.global_position), _visible(u.pos + Vector3.UP), _ahead_of_player(u.pos)])
 	return u
 
 
-## A lane point out of view, SPAWN_MIN..SPAWN_MAX m of road from the player
-## (interceptors: near the predicted intercept point instead, but never
-## closer than SPAWN_MIN to the player and never visible).
+## A lane point out of view, SPAWN_MIN..SPAWN_MAX m of road from the player,
+## AHEAD of them: on one of the routes they could take next (a random onward
+## route through the road graph), usually just round a corner off it, so the
+## police come at the player rather than up from behind. Interceptors go near
+## the predicted intercept point instead. Never closer than SPAWN_MIN, never
+## visible; only if nothing ahead works, somewhere to the side (never behind).
 func _spawn_spot(role: String) -> Dictionary:
 	var pp := player.global_position
 	var near_icpt := role == "interceptor" and intercept_point != Vector3.INF and intercept_field != null
-	for attempt in 24:
+	var fwd := _player_heading()
+	var routes: Array = []
+	if _player_lane >= 0:
+		for k in 3:
+			var w := net.wander(_player_lane, _player_s, SPAWN_MAX + 60.0, rng, 0.5)
+			if w.size() > 2:
+				routes.append(w)
+	for attempt in 32:
 		var ang := rng.randf() * TAU
 		var r := rng.randf_range(SPAWN_MIN, SPAWN_MAX)
 		var c := pp + Vector3(cos(ang), 0.0, sin(ang)) * r
 		if near_icpt:
 			c = intercept_point + Vector3(cos(ang), 0.0, sin(ang)) * rng.randf_range(60.0, 160.0)
+		elif attempt < 22 and not routes.is_empty():
+			# A point on a possible route ahead, nudged off it (round the corner).
+			var route: PackedVector3Array = routes[attempt % routes.size()]
+			var at := route[route.size() - 1]
+			var acc := 0.0
+			var want := rng.randf_range(SPAWN_MIN, SPAWN_MAX)
+			for i in range(1, route.size()):
+				acc += route[i].distance_to(route[i - 1])
+				if acc >= want:
+					at = route[i]
+					break
+			c = at + Vector3(cos(ang), 0.0, sin(ang)) * rng.randf_range(0.0, 60.0)
+		else:
+			# Fallback: anywhere in front or to the sides.
+			var side := fwd.rotated(Vector3.UP, rng.randf_range(-1.6, 1.6))
+			c = pp + side * r
+		if not near_icpt:
+			var dir := c - pp
+			dir.y = 0.0
+			if dir.normalized().dot(fwd) < (0.25 if attempt < 22 else -0.1):
+				continue  # behind the player
 		var n := net.nearest(c, Vector3.ZERO, 40.0, -1, true)
 		if n.is_empty():
 			continue
@@ -357,6 +388,14 @@ func _spawn_spot(role: String) -> Dictionary:
 			continue
 		return n
 	return {}
+
+
+## How far in front of the player a point is: dot of the player's heading
+## with the direction to it (1 dead ahead, 0 beside, -1 behind).
+func _ahead_of_player(p: Vector3) -> float:
+	var d := p - player.global_position
+	d.y = 0.0
+	return _player_heading().dot(d.normalized()) if d.length() > 0.1 else 0.0
 
 
 ## True if a point is on screen and not hidden behind a building.
@@ -618,16 +657,13 @@ func _tiers(pp: Vector3, dt := 0.0) -> void:
 
 
 ## Moves a virtual unit to a lane point HOLD_R..HOLD_R+70 m from the player,
-## out of the camera's view (behind or beside it), if one can be found.
+## out of the camera's view: ahead of the player off to one side (round a
+## corner from where they're going), else further round, never straight behind.
 func _reposition(u: PoliceUnit, pp: Vector3) -> void:
-	var back := Vector3.BACK
-	if camera and camera.cam:
-		back = camera.cam.global_basis.z
-		back.y = 0.0
-		back = back.normalized() if back.length() > 0.01 else Vector3.BACK
-	for k in 8:
-		var a := (k / 2) * 0.45 * (1.0 if k % 2 == 0 else -1.0)
-		var dir := back.rotated(Vector3.UP, a)
+	var fwd := _player_heading()
+	for k in 12:
+		var a := (0.45 + (k / 2) * 0.25) * (1.0 if k % 2 == 0 else -1.0)
+		var dir := fwd.rotated(Vector3.UP, a)
 		var probe := pp + dir * (HOLD_R + 30.0)
 		var nr := net.nearest(probe, Vector3.ZERO, 50.0, -1, true)
 		if nr.is_empty():
@@ -655,7 +691,7 @@ func _clear(p: Vector3) -> bool:
 
 func _promote(u: PoliceUnit) -> void:
 	if audit.size() < 500:
-		audit.append(["promote", u.pos.distance_to(player.global_position), _visible(u.pos + Vector3.UP)])
+		audit.append(["promote", u.pos.distance_to(player.global_position), _visible(u.pos + Vector3.UP), _ahead_of_player(u.pos)])
 	var car := _take_car(u.kind)
 	u.car = car
 	var dir := u.heading

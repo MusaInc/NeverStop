@@ -46,6 +46,12 @@ const BODY_MASK := 1 | (1 << 2) | (1 << 3) | (1 << 6) | (1 << 7)  # world, vehic
 const KERB_CLEAR := 0.3
 ## Ledges up to this tall (above the ground under the car) are climbed, not crashed into.
 const STEP_MAX := 0.62
+## Arcade turning at town speeds (fading out by ~50 km/h): how far past plain
+## tyre grip full lock may rotate the car, and the extra pivot (U-turns fit a street).
+const TURN := 2.3
+const LOW_SPEED_PIVOT := 1.6
+## How hard a held drift curves round (x tyre grip): a slide turns tighter than gripping.
+const DRIFT_PATH := 1.25
 
 var spec: Dictionary
 ## Controls, set every frame by the driver (player input or an AI brain).
@@ -506,10 +512,14 @@ func _physics_process(dt: float) -> void:
 		var grip_yaw := mu * GRAVITY * 1.1 / maxf(speed, 4.0)
 		# Arcade turning: the more you steer, the further past plain tyre grip
 		# the car is allowed to rotate (full lock ~1.7x).
-		var turn_k := lerpf(1.0, float(spec.get("turn", 1.7)), clampf(absf(str_in), 0.0, 1.0))
+		var town := 1.0 - smoothstep(5.0, 14.0, speed)
+		var turn_k := lerpf(1.0, lerpf(float(spec.get("turn", 1.7)), TURN, town), clampf(absf(str_in), 0.0, 1.0))
 		# Braking hard: the extra arcade rotation backs off (the tyres are busy stopping).
 		turn_k = lerpf(turn_k, 1.0, clampf(brk, 0.0, 1.0) * 0.7)
-		var want := clampf(-forward_speed * tan(steer_angle) / wb, -grip_yaw * turn_k, grip_yaw * turn_k)
+		# Arcade: at town speeds the car pivots tighter than its wheelbase
+		# allows (a U-turn fits across a street; the nose comes round at once).
+		var pivot := lerpf(1.0, LOW_SPEED_PIVOT, town)
+		var want := clampf(-forward_speed * tan(steer_angle) / wb * pivot, -grip_yaw * turn_k, grip_yaw * turn_k)
 		var assist: float = spec.get("yaw_assist", 0.35)
 		# The drift assist (which HOLDS a slide angle) is for deliberate drifts:
 		# the handbrake, or power-oversteer on the throttle. A slide that comes
@@ -523,7 +533,7 @@ func _physics_process(dt: float) -> void:
 			var hold := str_in * deg_to_rad(spec.get("drift_hold", 30.0))
 			if handbrake:
 				hold = str_in * max_a if absf(str_in) > 0.1 else beta
-			var path := -str_in * grip_yaw * 0.8
+			var path := -str_in * grip_yaw * DRIFT_PATH
 			want = (path - clampf((hold - beta) * 3.0, -2.5, 2.5)) * fs
 			assist = spec.get("drift_assist", 0.55)
 			if absf(beta) > max_a:

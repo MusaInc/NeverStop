@@ -88,3 +88,51 @@ func test_hard_turn_stays_a_grip_turn(t) -> void:
 		t.check(r["drift"] < 20, "%s: full lock without the handbrake doesn't snap into a drift" % id)
 		# Sharp enough to weave through traffic: ~30 m circle at 90 km/h or tighter.
 		t.check(r["steady"] > 0.75, "%s: full lock is a sharp turn (%.2f rad/s at 90 km/h)" % [id, r["steady"]])
+
+
+## U-turns: full lock from a rolling start (30 / 60 km/h, throttle held) and
+## from a standstill (full throttle + full lock). Time to face the other way
+## and the width of road it took (the turning circle).
+func _u_turn(id: String, kmh: float) -> Dictionary:
+	var car: Car = await _launch(id, kmh) if kmh > 0.0 else bench.spawn_car(id)
+	if kmh <= 0.0:
+		await DriveBench.frames(get_tree(), 30)
+	var start := car.global_position
+	var f0 := -car.global_basis.z
+	var right0 := car.global_basis.x
+	car.steer = 1.0
+	var t := -1.0
+	var width := 0.0
+	var turned := 0.0
+	var last := f0
+	for i in 600:
+		if kmh > 0.0:
+			_hold_speed(car, kmh / 3.6)
+		else:
+			car.throttle = 1.0
+		await get_tree().physics_frame
+		var f := -car.global_basis.z
+		f.y = 0.0
+		turned += absf(last.signed_angle_to(f, Vector3.UP))
+		last = f
+		width = maxf(width, absf((car.global_position - start).dot(right0)))
+		if turned >= PI:
+			t = (i + 1) / 60.0
+			break
+	car.queue_free()
+	await get_tree().physics_frame
+	return {"t": t, "width": width}
+
+
+func test_u_turns(t) -> void:
+	for id in CarCatalog.ORDER:
+		var line := "%-8s" % id
+		for kmh in [0.0, 30.0, 60.0]:
+			var r: Dictionary = await _u_turn(id, kmh)
+			line += "   %2d km/h: %.2f s, %4.1f m wide" % [kmh, r["t"], r["width"]]
+			# A U-turn at town speed fits across a two-lane street (~10 m).
+			if kmh == 30.0:
+				t.check(r["t"] > 0.0 and r["t"] < 2.2 and r["width"] < 10.0, "%s: U-turn at 30 km/h in %.2f s, %.1f m wide" % [id, r["t"], r["width"]])
+			if kmh == 60.0:
+				t.check(r["t"] > 0.0 and r["width"] < 45.0, "%s: full lock at 60 km/h comes round in %.1f m" % [id, r["width"]])
+		t.note(line)

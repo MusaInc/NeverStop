@@ -1,6 +1,23 @@
 # Status: 2026-11-11 (0.4.0)
 
-## Unreleased: battle modes (Sky Arena, Rooftop Rumble)
+## 0.5.0: battle modes, tighter turning, bigger stick, police from ahead
+
+- **Turning** (`Car.TURN`, `LOW_SPEED_PIVOT`, `DRIFT_PATH`): at town speeds (fading out by
+  ~50 km/h) full lock pivots the car tighter and may rotate further past tyre grip; held drifts
+  curve 1.25x tyre grip (was 0.8x, so a slide used to run wider than gripping). U-turn at
+  30 km/h: 1.25-2.05 s and 5-10 m wide (was 1.7-2.9 s, 8-14 m); 60 km/h unchanged for grip cars,
+  RWD cars 33-43 m (was 39-49). High-speed handling unchanged (steering tests pass).
+  `test_steering.test_u_turns` checks it.
+- **Smart stick**: radius 115 (was 72), knob 46, brake 36 px / NOS 54 px / drift 72 px down /
+  up / sideways (drift was 32 px, so steering on the stick kept pulling the handbrake), sits
+  further in from the corner; JUMP / DROP buttons 90 px.
+- **Police come from ahead**: units start on one of the player's possible onward routes
+  (random routes through the road graph), usually just round a corner off it, never behind;
+  units waiting to come in hold ahead and to the sides instead of behind the camera. Heat 3,
+  40 s: 28 / 31 started ahead, 13 / 16 reached the player as cars from in front, 0 seen
+  appearing. `game.test_2_police_arrive_fairly` checks >= 80 % ahead.
+
+## Battle modes (Sky Arena, Rooftop Rumble)
 
 Two new modes on the title screen under PLAY (`Game.start_mode`, `--mode=sky|rooftops`;
 `src/modes/arena.gd`). Ten cars (yours plus one of each of the other nine garage cars, some with

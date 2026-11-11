@@ -49,10 +49,11 @@ const FULL_LOCK_PX := 85.0
 const DEAD_PX := 5.0
 const PEDALS := ["gas", "brake"]
 ## Smart stick (canvas px at ui_k = 1).
-const STICK_R := 72.0          # full deflection
-const BRAKE_PX := 22.0         # drag down this far = brake
-const NOS_PX := 30.0           # drag up this far = nitro
-const DRIFT_PX := 32.0         # drag sideways this far = drift
+const STICK_R := 115.0         # full deflection (big: easy to find and hold by feel)
+const BRAKE_PX := 36.0         # drag down this far = brake
+const NOS_PX := 54.0           # drag up this far = nitro
+const DRIFT_PX := 72.0         # drag sideways this far = drift (deliberate: steering
+                               # with the stick no longer pulls the handbrake by accident)
 var _stick_touch := -1
 var _stick_origin := Vector2.ZERO
 var _stick_pos := Vector2.ZERO
@@ -109,7 +110,7 @@ func stick_r() -> float:
 ## Where the stick's resting hint sits (and where tests press it).
 func stick_home() -> Vector2:
 	var sa := _safe(get_viewport_rect().size)
-	return Vector2(sa.end.x - 128.0 * ui_k, sa.end.y - 118.0 * ui_k)
+	return Vector2(sa.end.x - 175.0 * ui_k, sa.end.y - 165.0 * ui_k)
 
 
 func _layout() -> void:
@@ -124,8 +125,8 @@ func _layout() -> void:
 			_rects[b] = off
 		# Kit buttons up the right edge, clear of the stick's travel.
 		var h := stick_home()
-		_rects["jump"] = Rect2(sa.end.x - 80 * k, h.y - stick_r() - 104 * k, 76 * k, 76 * k)
-		_rects["drop"] = Rect2(sa.end.x - 80 * k, _rects["jump"].position.y - 90 * k, 76 * k, 76 * k)
+		_rects["jump"] = Rect2(sa.end.x - 96 * k, h.y - stick_r() - 128 * k, 90 * k, 90 * k)
+		_rects["drop"] = Rect2(sa.end.x - 96 * k, _rects["jump"].position.y - 104 * k, 90 * k, 90 * k)
 	elif _pedal_mode():
 		_rects["gas"] = Rect2(sa.end.x - gw - 4, sa.end.y - gh - 4, gw, gh)
 		_rects["brake"] = Rect2(_rects["gas"].position.x - 108 * k - 14 * k, sa.end.y - 124 * k - 4, 108 * k, 124 * k)
@@ -457,7 +458,7 @@ func _draw_stick() -> void:
 		var on: bool = z[2]
 		var col: Color = z[1]
 		draw_arc(c, r + 4.0, float(z[0]) - 0.5, float(z[0]) + 0.5, 16, Color(col, 0.95 if on else 0.4 * a), 6.0 if on else 3.0, true)
-	var fs := maxi(10, int(12 * k))
+	var fs := maxi(12, int(15 * k))
 	var labels := [["NOS", Vector2(0, -r - 16 * k)], ["BRAKE", Vector2(0, r + 24 * k)],
 		["DRIFT", Vector2(-r - 30 * k, 4)], ["DRIFT", Vector2(r + 30 * k, 4)]]
 	if not _has_nitro():
@@ -472,7 +473,7 @@ func _draw_stick() -> void:
 	if live:
 		var o := _stick_pos - _stick_origin
 		knob = c + (o.limit_length(r))
-	var kr := 30.0 * k
+	var kr := 46.0 * k
 	var gas_on: bool = stick["gas"] > 0.0
 	var kc := UiStyle.RED if stick["brake"] > 0.0 else (UiStyle.BLUE if stick["nitro"] else UiStyle.AMBER)
 	draw_circle(knob, kr, Color(kc, 0.85) if live else Color(1, 1, 1, 0.12))

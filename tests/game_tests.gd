@@ -129,7 +129,13 @@ func test_2_police_arrive_fairly() -> void:
 	var bad := 0
 	var promotes := 0
 	var close := 0.0
+	var spawn_ahead := 0
+	var promote_ahead := 0
 	for a in game.director.audit:
+		if a[0] == "spawn" and float(a[3]) > 0.0:
+			spawn_ahead += 1
+		elif a[0] == "promote" and float(a[3]) > 0.0:
+			promote_ahead += 1
 		if a[0] == "spawn":
 			spawns += 1
 			if a[2] or a[1] < PursuitDirector.SPAWN_MIN * 0.75:
@@ -139,7 +145,9 @@ func test_2_police_arrive_fairly() -> void:
 			if a[2] or a[1] < 45.0:
 				bad += 1
 			close = maxf(close, a[1])
-	note("%d dispatched, %d became cars, %d unfair" % [spawns, promotes, bad])
+	note("%d dispatched (%d ahead), %d became cars (%d ahead), %d unfair" % [spawns, spawn_ahead, promotes, promote_ahead, bad])
+	# Police come at the player from where they're heading, not up from behind.
+	check(spawn_ahead >= spawns * 0.8, "most units start ahead of the player (%d / %d)" % [spawn_ahead, spawns])
 	check(spawns >= 4, "units are dispatched at heat 3")
 	check(promotes >= 1, "some reach the player as cars")
 	check(bad == 0, "nobody appears in view or right next to the player")
