@@ -14,6 +14,7 @@ extends Node3D
 ##   --time=<h> --weather=<w> --quality=0|1|2 --perf --touch --menu=<screen>
 ##   --save=<path>          scratch save file (never the player's)
 ##   --at=<x,z>             spawn on the lane nearest this point (captures)
+##   --mode=chase|sky|rooftops   game mode (battle arenas: see Arena)
 
 enum State { MENU, PLAYING, PAUSED, BUSTED, GARAGE }
 
@@ -57,6 +58,13 @@ var _time := 0.0
 var _quit_after := -1.0
 var _resumed_frame := -1
 var daily := {}
+## "chase" (the pursuit), or a battle arena: "sky" (Sky Arena, the floating
+## platform) / "rooftops" (Rooftop Rumble, the tower tops).
+var mode := "chase"
+var arena: Arena
+var _held := false			 # battle countdown running
+var _arenas := {}              # mode -> built Arena (kept, detached when unused)
+const MODE_NAMES := {"chase": "Pursuit", "sky": "Sky Arena", "rooftops": "Rooftop Rumble"}
 ## Off in headless runs (no window, spurious focus events); tests turn it on.
 var autopause := DisplayServer.get_name() != "headless"
 
@@ -74,6 +82,8 @@ func _ready() -> void:
 				args[kv2[0]] = kv2[1] if kv2.size() > 1 else "1"
 	if args.has("save"):
 		SaveData.use_file(args["save"])
+	if args.has("mode") and MODE_NAMES.has(str(args["mode"])):
+		mode = str(args["mode"])
 	if args.has("quality"):
 		Settings.quality = int(args["quality"])
 	if args.has("perf"):
@@ -206,9 +216,13 @@ func _ready() -> void:
 	touch.kit = kit
 	hud.kit = kit
 	hud.repairs = repairs
-	kit.hit.connect(func(kind, _c):
+	kit.hit.connect(func(kind, c):
+		if arena and arena.running and c is Car:
+			(c as Car).last_hit_by = player
+			(c as Car).set_meta("hit_t", arena.time)
 		if score and state == State.PLAYING:
-			score.award("MINED A COP" if kind == "mines" else "SPIKED A COP", 300.0 if kind == "mines" else 150.0))
+			var who := "" if is_battle() else " A COP"
+			score.award(("MINED" if kind == "mines" else "SPIKED") + who, 300.0 if kind == "mines" else 150.0))
 	props.broke.connect(func(kind, at, by):
 		if by == player or player.global_position.distance_to(at) < 60.0:
 			audio.play_at("prop_hit", at, 2.0 if by == player else -2.0)
@@ -244,6 +258,8 @@ func _ready() -> void:
 ## A lane point near the chosen start spot with a long straight ahead,
 ## facing along it (so the first five seconds are a clean launch).
 func spawn_point() -> Transform3D:
+	if is_battle():
+		return _battle_arena().slots()[0]
 	var spot_id: String = args.get("start", SaveData.data.get("start", "downtown"))
 	var spot: Dictionary = Progression.STARTS.get(spot_id, Progression.STARTS["downtown"])
 	var c: Vector3 = spot["at"]
@@ -336,19 +352,28 @@ func start_run() -> void:
 		bot = AIDriver.new(player)
 		bot.skill = 0.9
 		input.enabled = false
-	civilians.reset_around(player.global_position)
-	if args.has("nociv"):
-		civilians.enabled = false
-		for c in civilians.cars:
-			civilians._park(c)
-	director.start(int(args.get("heat", "1")))
-	if args.has("nopolice"):
-		director.active = false
+	if is_battle():
+		_begin_battle()
+	else:
+		_end_battle()
+		civilians.enabled = true
+		civilians.reset_around(player.global_position)
+		if args.has("nociv"):
+			civilians.enabled = false
+			for c in civilians.cars:
+				civilians._park(c)
+		director.start(int(args.get("heat", "1")))
+		if args.has("nopolice"):
+			director.active = false
 	score.begin()
-	contracts.begin(score, int(args["seed"]) if args.has("seed") else -1)
-	repairs.begin(int(args["seed"]) if args.has("seed") else -1)
+	if is_battle():
+		contracts.stop()
+		repairs.clear()
+	else:
+		contracts.begin(score, int(args["seed"]) if args.has("seed") else -1)
+		repairs.begin(int(args["seed"]) if args.has("seed") else -1)
 	kit.reset()
-	hud.start_coach(not SaveData.data.get("tutorial_done", false) and bot == null and not args.has("notutorial"))
+	hud.start_coach(not is_battle() and not SaveData.data.get("tutorial_done", false) and bot == null and not args.has("notutorial"))
 	_scenario(args.get("scenario", ""))
 	hud.visible = true
 	touch.visible = hud.touch_mode
@@ -357,6 +382,168 @@ func start_run() -> void:
 	touch.release_all()
 	if menus:
 		menus.show_screen("")
+	state_changed.emit(state)
+
+
+## Title screen: start a run in a mode ("chase", "sky", "rooftops").
+func start_mode(m: String) -> void:
+	if not MODE_NAMES.has(m):
+		return
+	mode = m
+	start_run()
+
+
+func is_battle() -> bool:
+	return mode == "sky" or mode == "rooftops"
+
+
+## The arena for the current mode, built on first use (a few ms) and kept.
+func _battle_arena() -> Arena:
+	if not _arenas.has(mode):
+		var t0 := Time.get_ticks_msec()
+		var a := Arena.new().build(layout, Arena.Kind.SKY if mode == "sky" else Arena.Kind.ROOFTOPS)
+		a.knocked_out.connect(_on_knocked_out)
+		a.finished.connect(_on_battle_won)
+		_arenas[mode] = a
+		print("Arena %s: %d ms" % [mode, Time.get_ticks_msec() - t0])
+	var ar: Arena = _arenas[mode]
+	if ar.get_parent() == null:
+		add_child(ar)
+	return ar
+
+
+## Ten cars: the player and one of each of the other nine garage cars, a
+## few of them with Workshop battle kit bolted on.
+func _begin_battle() -> void:
+	if arena:
+		arena.cleanup()
+	arena = _battle_arena()
+	for a: Arena in _arenas.values():
+		if a != arena and a.get_parent():
+			remove_child(a)
+	director.clear()
+	director.active = false
+	director.heat = 1
+	civilians.enabled = false
+	for c in civilians.cars:
+		civilians._park(c)
+	repairs.clear()
+	var r := RandomNumberGenerator.new()
+	r.seed = int(args["seed"]) if args.has("seed") else randi()
+	var ids: Array = CarCatalog.ORDER.filter(func(i): return i != car_id)
+	var rivals: Array = []
+	for id: String in ids.slice(0, Arena.N_CARS - 1):
+		var mods := {}
+		if r.randf() < 0.4:
+			mods["ram"] = r.randi_range(1, 2)
+		if r.randf() < 0.3:
+			mods["plating"] = r.randi_range(1, 3)
+		var c := Car.new()
+		c.name = "Rival_" + id
+		c.setup(CarCatalog.spec(id, {}, mods), "rival")
+		c.immortal = true
+		add_child(c)
+		var v := CarVisual.new()
+		c.add_child(v)
+		v.setup(c)
+		c.visual = v
+		rivals.append(c)
+	# --bot: the player's car fights like a rival (captures, tests).
+	var auto := args.has("bot")
+	if auto:
+		bot = null
+		input.enabled = false
+	arena.begin(player, rivals, int(args["seed"]) if args.has("seed") else -1, auto)
+	world.build_all_near(arena.centre, 420.0)
+	camera.set_target(player, true)
+	hud.arena = arena
+
+
+func _end_battle() -> void:
+	if arena:
+		arena.cleanup()
+		if arena.get_parent():
+			remove_child(arena)
+	arena = null
+	civilians.enabled = true
+	if hud:
+		hud.arena = null
+
+
+func _on_knocked_out(c: Car, by: Car, place: int) -> void:
+	if state != State.PLAYING:
+		return
+	if c == player:
+		_battle_over(false, place)
+		return
+	var who := str(c.spec.get("name", "A RIVAL")).to_upper()
+	if by == player:
+		score.award("KNOCKOUT", 1000.0)
+		hud.flash(UiStyle.AMBER, 0.3)
+		camera.shake(0.35)
+		_time_fx(0.3, 600.0, 0.4)
+		Settings.haptic(120, 1.0)
+		if audio:
+			audio.event_chime(1000)
+	else:
+		hud.notice("%s IS OUT  ·  %d LEFT" % [who, arena.alive.size()])
+
+
+func _on_battle_won(winner: Car) -> void:
+	if state == State.PLAYING and winner == player:
+		_battle_over(true, 1)
+
+
+## Battle over (won, or the player went over the edge): slow motion, the
+## camera watches, then the results.
+func _battle_over(won: bool, place: int) -> void:
+	state = State.BUSTED
+	_bust_t = 0.0
+	input.enabled = false
+	bot = null
+	score.running = false
+	arena.stop()
+	hud.flash(UiStyle.AMBER if won else UiStyle.RED, 0.6)
+	Engine.time_scale = 0.35
+	if won:
+		player.throttle = 0.0
+		Arena._hold(player)
+		camera.orbit(camera.view_yaw() + PI)
+	else:
+		# Stay up top and watch the car drop away.
+		camera.fixed(camera.global_position + Vector3.UP * 2.0)
+	touch.visible = false
+	var ko := arena.knockouts(player)
+	var bonus := 2500 if won else maxi(0, (Arena.N_CARS - place) * 150)
+	if won:
+		score.award("LAST CAR STANDING", 2500.0, false)
+	last_result = score.summary()
+	last_result["battle"] = mode
+	last_result["won"] = won
+	last_result["place"] = place
+	last_result["knockouts"] = ko
+	last_result["car"] = car_id
+	last_result["currency"] = int(score.score / 40.0) + bonus
+	SaveData.add_cash(int(last_result["currency"]))
+	var bs: Dictionary = SaveData.data.get("battles", {})
+	var rec: Dictionary = bs.get(mode, {"played": 0, "wins": 0, "best_place": 99, "best_ko": 0})
+	rec["played"] = int(rec["played"]) + 1
+	rec["wins"] = int(rec["wins"]) + (1 if won else 0)
+	var records: Array = []
+	if place < int(rec["best_place"]):
+		rec["best_place"] = place
+		records.append("best_place")
+	if ko > int(rec["best_ko"]):
+		rec["best_ko"] = ko
+		records.append("best_ko")
+	bs[mode] = rec
+	SaveData.data["battles"] = bs
+	last_result["records"] = records if int(rec["played"]) > 1 else []
+	var xp_before := int(SaveData.data.get("xp", 0))
+	last_result["xp_before"] = xp_before
+	last_result["ranks"] = Progression.add_xp(SaveData, int(last_result["score"]))
+	last_result["challenges"] = []
+	SaveData.save()
 	state_changed.emit(state)
 
 
@@ -426,6 +613,9 @@ func _scenario(name: String) -> void:
 
 func enter_menu() -> void:
 	state = State.MENU
+	_end_battle()
+	mode = "chase"
+	civilians.enabled = true
 	director.clear()
 	score.running = false
 	contracts.stop()
@@ -473,6 +663,8 @@ func resume() -> void:
 func quit_to_menu() -> void:
 	get_tree().paused = false
 	Engine.time_scale = 1.0
+	_end_battle()
+	mode = "chase"
 	spawn_player(car_id)
 	civilians.reset_around(player.global_position)
 	enter_menu()
@@ -597,6 +789,11 @@ func _ram(strength: float, at: Vector3, n: Vector3, oc: Car) -> bool:
 			score.award("SLAM" if k < 0.6 else "BIG SLAM", 150.0 + 450.0 * k)
 		elif oc.role == "civilian":
 			score.award("SMASH", 40.0 + 120.0 * k)
+		elif oc.role == "rival":
+			score.award("SLAM" if k < 0.6 else "BIG SLAM", 120.0 + 380.0 * k)
+	if arena and arena.running:
+		oc.last_hit_by = player
+		oc.set_meta("hit_t", arena.time)
 	return true
 
 
@@ -686,6 +883,8 @@ func _physics_process(dt: float) -> void:
 			if u.car:
 				list.append(u.car)
 		list.append_array(civilians.active_cars())
+		if arena:
+			list.append_array(arena.alive)
 		fx.cars = list
 		props.cars = list
 	if args.has("trace") and Engine.get_physics_frames() % 30 == 0:
@@ -699,11 +898,29 @@ func _physics_process(dt: float) -> void:
 			var states := {}
 			for u in director.units:
 				states[u.state + ("*" if u.car else "")] = states.get(u.state + ("*" if u.car else ""), 0) + 1
+			if arena:
+				print("ARENA t=%.1f left=%d ko=%d running=%s pos=%s on=%s" % [arena.time, arena.alive.size(), arena.knockouts(player),
+					arena.running, player.global_position.snapped(Vector3.ONE), arena.on_surface(player.global_position)])
 			print("PURSUIT t=%.0f heat=%d alive=%d cars=%d bust=%.2f score=%d chain=%.1f near=%d wrecked=%d rb=%d civ=%d hp=%.2f %s" % [
 				director.time, director.heat, director.alive_count(), director.physical_count(), director.bust, score.score,
 				score.chain, score.near_misses, director.stats["wrecked"], director.roadblocks.size(), civilians.active_cars().size(),
 				player.health, states])
-	if state == State.PLAYING or state == State.MENU:
+	if state == State.PLAYING and arena:
+		if arena.countdown > 0.0:
+			input.enabled = false
+			_held = true
+		elif _held:
+			# GO: hand the car over, camera back behind it.
+			_held = false
+			input.enabled = not args.has("bot")
+			camera.chase()
+			camera.set_target(player, false)
+	if state == State.PLAYING and arena:
+		# Battles: no lanes to snap to, just back on the wheels where it is.
+		if player.upside_time > 2.0 or Input.is_action_just_pressed("recover"):
+			if arena.on_surface(player.global_position, 0.0):
+				arena.right_car(player)
+	elif state == State.PLAYING or state == State.MENU:
 		if player.upside_time > 2.0 or (Input.is_action_just_pressed("recover") and state == State.PLAYING):
 			recover_player()
 		elif player.stuck_time > 3.5 and not player.disabled and director.bust < 0.05:
@@ -818,8 +1035,11 @@ func _publish_web(dt: float) -> void:
 		"speed": player.speed * 3.6, "steer": player.steer, "brake": player.brake, "throttle": player.throttle, "handbrake": player.handbrake,
 		"heat": director.heat, "police": director.alive_count(), "cars": director.physical_count(),
 		"score": score.score, "time": score.time, "bust": director.bust, "touch": touch.visible,
-		"fps": Engine.get_frames_per_second(),
+		"fps": Engine.get_frames_per_second(), "mode": mode,
 	}
+	if arena:
+		st["arena_left"] = arena.alive.size()
+		st["arena_ko"] = arena.knockouts(player)
 	if menus and menus.has_method("button_centres"):
 		st["buttons"] = menus.button_centres()
 	st["touch_buttons"] = touch.button_centres()

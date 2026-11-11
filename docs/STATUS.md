@@ -1,5 +1,31 @@
 # Status: 2026-11-11 (0.4.0)
 
+## Unreleased: battle modes (Sky Arena, Rooftop Rumble)
+
+Two new modes on the title screen under PLAY (`Game.start_mode`, `--mode=sky|rooftops`;
+`src/modes/arena.gd`). Ten cars (yours plus one of each of the other nine garage cars, some with
+ram bars / plating), no police, no traffic, no rails: whoever goes over the edge is out, last
+car standing wins. 3-2-1 countdown with everyone held; HUD shows cars left and your knockouts;
+minimap shows rivals; results show your finish, knockouts and a cash bonus (win $2,500,
+otherwise $150 per car you outlasted); Records shows wins / best finish per mode
+(`SaveData.data["battles"]`).
+
+- **Sky Arena**: a 64 m floating disc 72 m above the nearest open spot to downtown (picked from
+  the layout so no building reaches it), hazard-striped rim, glowing edge and thrusters underneath.
+- **Rooftop Rumble**: steel decks on five of the tallest business towers (decks ~330 m up), joined
+  by five open girder bridges. Decks may stand up to 24 m over their roof on a frame so towers of
+  different heights meet with gentle ramps (≤ 20 %); a thin mast through a deck's middle stays
+  as a pillar. Chosen from the layout at start-up (~80 ms).
+- **Rivals** (`Arena.Bot`): drive at a victim with `AIDriver` (rams on), route deck to deck over
+  the bridges, cap their speed by the deck left ahead so they can stop, back off when the nose is
+  over the edge, shove what they hit, spread out (a car hunted by two others is less appealing),
+  and are righted when flipped. Knockout credit goes to whoever last touched the car (contact
+  checks, so slow pushes count) within 4 s. Mines / caltrops work on rivals.
+- Test: `game.test_9c_battle_arenas` (arena placement, slots and bridge ramps drivable, decks
+  connected, cars held during the countdown, knockouts happen, city restored afterwards).
+- Not published / not on TestFlight yet. Needs a person: whether the fights feel fair on touch,
+  the arena sizes, how hard the rivals are, and frame rate on a real iPhone with ten cars.
+
 ## 0.4.1: smart stick, harder-hitting crashes, water and ghost-police fixes
 
 - **Smart stick** (Settings → Right hand → Smart stick, the default). Thumb down

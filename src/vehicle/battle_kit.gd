@@ -156,6 +156,12 @@ func _police_list() -> Array:
 	for u in dir.units:
 		if u.car and u.alive():
 			out.append(u.car)
+	# Battles: the rivals are fair game for caltrops and mines.
+	var ar = get_parent().get("arena")
+	if ar and (ar as Arena).running:
+		for c in (ar as Arena).alive:
+			if c != car and is_instance_valid(c):
+				out.append(c)
 	return out
 
 

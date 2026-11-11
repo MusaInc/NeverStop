@@ -17,6 +17,7 @@ var minimap: Minimap
 var contracts: Contracts
 var kit: BattleKit
 var repairs: RepairPickups
+var arena: Arena                 # set during a battle (Sky Arena / Rooftop Rumble)
 var touch_mode := false
 ## First-run coach: one prompt at a time until the player has done it.
 var _coach: Array = []           # [text_touch, text_keys, kind, need]
@@ -207,6 +208,10 @@ func _process(dt: float) -> void:
 					ms.append([rb["pos"], "roadblock"])
 			if director.heli:
 				ms.append([director.heli.global_position, "heli"])
+			if arena:
+				for c in arena.alive:
+					if c != player and is_instance_valid(c):
+						ms.append([c.global_position, "rival"])
 			if repairs and repairs.active and player:
 				var near := repairs.nearest(player.global_position)
 				for rp in repairs.positions():
@@ -269,6 +274,8 @@ func _draw() -> void:
 	_draw_bust(vp)
 	_draw_contracts(s)
 	_draw_coach(vp)
+	if arena:
+		_draw_countdown(vp)
 	if _done_pop_t > 0.0:
 		var a3 := clampf(_done_pop_t * 2.0, 0.0, 1.0)
 		var w3 := UiStyle.text_width(_done_pop, 22, "black")
@@ -295,6 +302,9 @@ func _draw_time_heat(s: Rect2) -> void:
 	var y := s.position.y
 	var t: float = score.time if score else 0.0
 	UiStyle.text(self, Vector2(x, y + 40), UiStyle.time_str(t), 42, UiStyle.WHITE, "black")
+	if arena:
+		_draw_battle(x, y + 52)
+		return
 	# Heat: six bars, blue to red; beyond 6 the number keeps climbing.
 	var h: int = director.heat if director else 1
 	var bx := x
@@ -314,6 +324,40 @@ func _draw_time_heat(s: Rect2) -> void:
 	if director and director.active:
 		var n := director.alive_count()
 		UiStyle.text(self, Vector2(x, by + 36), "%d UNITS IN PURSUIT" % n, 12, Color(0.75, 0.85, 1.0, 0.8), "bold")
+
+
+func _draw_countdown(vp: Vector2) -> void:
+	var c := arena.countdown
+	var go := arena.time < 0.8 and c <= 0.0 and arena.running
+	if c <= 0.0 and not go:
+		return
+	var txt := "GO!" if go else str(ceili(c))
+	var f := (1.0 - fmod(c, 1.0)) if not go else arena.time / 0.8
+	var size := int(120 + 40 * (1.0 - f))
+	var a := clampf(1.6 - f * 1.2, 0.0, 1.0) if go else clampf(2.0 - f * 1.4, 0.0, 1.0)
+	var w := UiStyle.text_width(txt, size, "black")
+	var y := vp.y * 0.45 + size * 0.35
+	UiStyle.text(self, Vector2(vp.x * 0.5 - w * 0.5 + 4, y + 4), txt, size, Color(0, 0, 0, 0.5 * a), "black")
+	UiStyle.text(self, Vector2(vp.x * 0.5 - w * 0.5, y), txt, size, Color(UiStyle.AMBER if go else UiStyle.WHITE, a), "black")
+	if not go:
+		var sub := str(game.MODE_NAMES.get(game.mode, "")).to_upper() + "  ·  LAST CAR STANDING WINS"
+		var sw := UiStyle.text_width(sub, 22, "black")
+		UiStyle.text(self, Vector2(vp.x * 0.5 - sw * 0.5, vp.y * 0.45 + 110), sub, 22, Color(UiStyle.WHITE, 0.9), "black")
+
+
+## Battle: cars still up there (a pip each, the player's gold), and our knockouts.
+func _draw_battle(x: float, y: float) -> void:
+	var n := arena.alive.size()
+	UiStyle.text(self, Vector2(x, y + 14), "CARS LEFT", 12, UiStyle.DIM, "bold")
+	UiStyle.text(self, Vector2(x + 76, y + 16), "%d" % n, 20, UiStyle.WHITE, "black")
+	for i in Arena.N_CARS:
+		var on := i < n
+		var col := Color(1, 1, 1, 0.14)
+		if on:
+			col = UiStyle.GOLD if i == 0 and player in arena.alive else UiStyle.AMBER.lerp(UiStyle.RED, 0.5)
+		draw_rect(Rect2(x + i * 13, y + 24, 9, 9), col)
+	var ko := arena.knockouts(player)
+	UiStyle.text(self, Vector2(x, y + 52), "KNOCKOUTS  %d" % ko, 13, Color(UiStyle.AMBER, 0.9), "black")
 
 
 func _draw_score(s: Rect2, vp: Vector2) -> void:

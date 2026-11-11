@@ -312,6 +312,16 @@ func _build_title() -> void:
 	play.custom_minimum_size = Vector2(440, 64)
 	play.size_flags_horizontal = SIZE_SHRINK_BEGIN
 	v.add_child(play)
+	# Battle arenas: ten cars, one surface high over the city, last car on it wins.
+	var modes := HBoxContainer.new()
+	modes.add_theme_constant_override("separation", 10)
+	modes.size_flags_horizontal = SIZE_SHRINK_BEGIN
+	v.add_child(modes)
+	for pair in [["SKY ARENA", "sky"], ["ROOFTOP RUMBLE", "rooftops"]]:
+		var mid: String = pair[1]
+		var mb := _btn(pair[0], func(): game.start_mode(mid), false, 18)
+		mb.custom_minimum_size = Vector2(215, 50)
+		modes.add_child(mb)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	row.size_flags_horizontal = SIZE_SHRINK_BEGIN
@@ -416,19 +426,34 @@ func show_results(r: Dictionary) -> void:
 	v.add_theme_constant_override("separation", 6)
 	v.size_flags_horizontal = SIZE_EXPAND_FILL
 	h.add_child(v)
-	v.add_child(_label("Busted", 72, UiStyle.RED, "black"))
+	var battle := r.has("battle")
 	_results_rows.clear()
 	_count_t = 0.0
-	var rows := [
-		["Survived", func(k): return UiStyle.time_str(float(r["time"]) * k)],
-		["Police vehicles wrecked", func(k): return str(int(r["police_wrecked"] * k))],
-		["Near misses", func(k): return str(int(r["near_misses"] * k))],
-		["Roadblocks escaped", func(k): return str(int(r["roadblocks"] * k))],
-		["Distance travelled", func(k): return "%.1f km" % (r["distance"] / 1000.0 * k)],
-		["Top speed", func(k): return "%d km/h" % int(r["top_speed"] * 3.6 * k)],
-		["Highest heat", func(k): return str(maxi(1, int(round(r["max_heat"] * k))))],
-		["Contracts finished", func(k): return str(int(r.get("contracts", 0) * k))],
-	]
+	var rows: Array
+	if battle:
+		var won: bool = r["won"]
+		v.add_child(_label("Champion" if won else "Knocked out", 72, UiStyle.AMBER if won else UiStyle.RED, "black"))
+		v.add_child(_label(str(game.MODE_NAMES.get(r["battle"], "")).to_upper() + ("  ·  LAST CAR STANDING" if won else "  ·  OVER THE EDGE"), 16, UiStyle.DIM, "black"))
+		var place := int(r["place"])
+		rows = [
+			["Finished", func(_k): return "%d%s of %d" % [place, _ordinal(place), Arena.N_CARS]],
+			["Knockouts", func(k): return str(int(r["knockouts"] * k))],
+			["Lasted", func(k): return UiStyle.time_str(float(r["time"]) * k)],
+			["Top speed", func(k): return "%d km/h" % int(r["top_speed"] * 3.6 * k)],
+			["Air time", func(k): return "%.1f s" % (float(r["air_time"]) * k)],
+		]
+	else:
+		v.add_child(_label("Busted", 72, UiStyle.RED, "black"))
+		rows = [
+			["Survived", func(k): return UiStyle.time_str(float(r["time"]) * k)],
+			["Police vehicles wrecked", func(k): return str(int(r["police_wrecked"] * k))],
+			["Near misses", func(k): return str(int(r["near_misses"] * k))],
+			["Roadblocks escaped", func(k): return str(int(r["roadblocks"] * k))],
+			["Distance travelled", func(k): return "%.1f km" % (r["distance"] / 1000.0 * k)],
+			["Top speed", func(k): return "%d km/h" % int(r["top_speed"] * 3.6 * k)],
+			["Highest heat", func(k): return str(maxi(1, int(round(r["max_heat"] * k))))],
+			["Contracts finished", func(k): return str(int(r.get("contracts", 0) * k))],
+		]
 	var i := 0
 	for row in rows:
 		var hb := HBoxContainer.new()
@@ -464,10 +489,10 @@ func show_results(r: Dictionary) -> void:
 	var earned := _label("+$%s" % UiStyle.thousands(int(r["currency"])), 30, UiStyle.AMBER, "black")
 	right.add_child(earned)
 	right.add_child(_cash_label(16))
-	var names := {"best_score": "NEW BEST SCORE", "best_time": "LONGEST CHASE", "best_heat": "HIGHEST HEAT",
+	var names := {"best_place": "BEST FINISH", "best_ko": "MOST KNOCKOUTS", "best_score": "NEW BEST SCORE", "best_time": "LONGEST CHASE", "best_heat": "HIGHEST HEAT",
 		"best_wrecked": "MOST COPS WRECKED", "best_near_misses": "MOST NEAR MISSES", "best_distance": "FURTHEST DRIVE"}
 	for rec in r.get("records", []):
-		if SaveData.data["runs"] > 1 or rec == "best_score":
+		if battle or SaveData.data["runs"] > 1 or rec == "best_score":
 			right.add_child(_label("★ " + str(names.get(rec, rec)), 16, UiStyle.AMBER, "bold"))
 	if int(r.get("contract_cash", 0)) > 0:
 		right.add_child(_label("incl. contracts  +$%s" % UiStyle.thousands(int(r["contract_cash"])), 14, UiStyle.DIM, "bold"))
@@ -486,7 +511,7 @@ func show_results(r: Dictionary) -> void:
 	var gap := Control.new()
 	gap.size_flags_vertical = SIZE_EXPAND_FILL
 	right.add_child(gap)
-	right.add_child(_btn("Retry", func(): game.start_run(), true, 24))
+	right.add_child(_btn("Rematch" if battle else "Retry", func(): game.start_run(), true, 24))
 	right.add_child(_btn("Garage", func(): _back_to = "title"; game.quit_to_menu(); show_screen("garage")))
 	var row2 := HBoxContainer.new()
 	row2.add_theme_constant_override("separation", 8)
@@ -498,6 +523,12 @@ func show_results(r: Dictionary) -> void:
 	mb.custom_minimum_size = Vector2(116, 46)
 	row2.add_child(mb)
 	_focus_first.call_deferred(right)
+
+
+static func _ordinal(n: int) -> String:
+	if n % 100 in [11, 12, 13]:
+		return "th"
+	return ["th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"][n % 10]
 
 
 # ---------------------------------------------------------------- about
@@ -634,6 +665,17 @@ func _build_records() -> void:
 	var ch := VBoxContainer.new()
 	ch.size_flags_horizontal = SIZE_EXPAND_FILL
 	cols.add_child(ch)
+	var bs: Dictionary = d.get("battles", {})
+	if not bs.is_empty():
+		ch.add_child(_label("BATTLES", 14, UiStyle.AMBER, "black"))
+		for mk in ["sky", "rooftops"]:
+			if not bs.has(mk):
+				continue
+			var r: Dictionary = bs[mk]
+			var bp := int(r["best_place"])
+			ch.add_child(_row(str(game.MODE_NAMES[mk]), "%d won of %d  ·  best %d%s  ·  %d KO" % [int(r["wins"]), int(r["played"]),
+				bp, _ordinal(bp), int(r["best_ko"])]))
+		ch.add_child(_label(" ", 6))
 	var done := 0
 	for cc in Progression.CHALLENGES:
 		if SaveData.challenge_done(cc["id"]):

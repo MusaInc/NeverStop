@@ -174,6 +174,9 @@ func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
 			ov.draw_arc(p, 5.0, t * 9.0 + PI, t * 9.0 + PI * 1.7, 8, UiStyle.WHITE, 1.6, true)
 		"wreck":
 			ov.draw_circle(p, 2.6, Color(0.6, 0.6, 0.62, 0.7))
+		"rival":
+			ov.draw_circle(p, 5.0, Color(0.03, 0.03, 0.04, 0.85))
+			ov.draw_circle(p, 3.6, UiStyle.AMBER.lerp(UiStyle.RED, 0.5))
 		"enroute":
 			# Backup on its way (not on the streets near you yet).
 			ov.draw_arc(p, 3.4, 0.0, TAU, 14, Color(UiStyle.RED, 0.7), 1.4, true)

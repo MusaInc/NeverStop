@@ -570,3 +570,80 @@ func test_2c_repairs_and_battle_kit() -> void:
 		note("mine: police health %.2f, wrecked %d -> %d" % [cop.health, w0, game.director.stats["wrecked"]])
 		check(game.director.stats["wrecked"] > w0, "a mine wrecks the police car")
 	game.args.erase("bot")
+
+
+## Battle arenas (Sky Arena / Rooftop Rumble): the arena is built where it
+## should be, every start slot and ramp is drivable, the rooftop decks are
+## all connected, ten cars fight, cars that go over get knocked out (with
+## credit), and leaving puts the city back (police, civilians, no rivals).
+func test_9c_battle_arenas() -> void:
+	var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.new()
+	q.collision_mask = Car.RAY_MASK
+	for m in ["sky", "rooftops"]:
+		game.mode = m
+		await _start(1, true)
+		var ar: Arena = game.arena
+		check(ar != null and ar.running, "%s: arena running" % m)
+		if ar == null:
+			continue
+		check(ar.cars.size() == Arena.N_CARS, "%s: %d cars" % [m, ar.cars.size()])
+		check(game.director.alive_count() == 0 and game.civilians.active_cars().is_empty(), "%s: no police or traffic" % m)
+		if m == "sky":
+			check(ar.decks.size() == 1 and ar.floor_y > game.layout.ground_y(ar.centre.x, ar.centre.z) + 50.0, "sky: disc floats over the city")
+		else:
+			check(ar.decks.size() >= 4, "rooftops: %d decks" % ar.decks.size())
+			check(ar.floor_y > 250.0, "rooftops: decks up in the towers (%.0f m)" % ar.floor_y)
+			for a in ar.decks.size():
+				for b in ar.decks.size():
+					if a != b:
+						check(not ar.route(a, b).is_empty(), "rooftops: deck %d reaches deck %d" % [a, b])
+			# Every bridge is a continuous ramp: surface under its centre line every 2 m.
+			for l in ar.links:
+				var pa: Vector3 = l[3]
+				var pb: Vector3 = l[4]
+				var n := int(pa.distance_to(pb) / 2.0)
+				for i in n + 1:
+					var p := pa.lerp(pb, float(i) / maxf(n, 1))
+					q.from = p + Vector3.UP * 2.0
+					q.to = p - Vector3.UP * 2.0
+					var hit := space.intersect_ray(q)
+					if hit.is_empty() or absf((hit["position"] as Vector3).y - p.y) > 0.6:
+						check(false, "rooftops: bridge surface missing at %s" % p.snapped(Vector3.ONE))
+						break
+		for xf: Transform3D in ar.slots():
+			check(ar.on_surface(xf.origin, 1.5), "%s: start slot %s on the deck" % [m, xf.origin.snapped(Vector3.ONE)])
+		# Countdown: everyone stays put.
+		var starts: Array = ar.cars.map(func(c): return (c as Car).global_position)
+		await _frames(150)
+		var moved := 0.0
+		for i in ar.cars.size():
+			moved = maxf(moved, (ar.cars[i] as Car).global_position.distance_to(starts[i]))
+		check(moved < 1.0, "%s: cars held during the countdown (moved %.1f m)" % [m, moved])
+		# The fight.
+		var frames := 0
+		while frames < 60 * 70 and ar.alive.size() > 3 and game.state == game.State.PLAYING:
+			await _frames(30)
+			frames += 30
+			for c: Car in ar.alive:
+				if is_instance_valid(c) and c.global_position.y < ar.floor_y - Arena.KO_DROP - 3.0:
+					check(false, "%s: %s fell without being knocked out" % [m, c.name])
+		var credited := 0
+		for c in ar.out_order:
+			if is_instance_valid(c) and c.last_hit_by:
+				credited += 1
+		note("%s: %d out in %.0f s (%d with a pusher), player %s" % [m, ar.out_order.size(), ar.time, credited,
+			"out" if game.state == game.State.BUSTED else "in"])
+		check(ar.out_order.size() >= 3, "%s: cars get knocked off (%d)" % [m, ar.out_order.size()])
+		if game.state == game.State.BUSTED:
+			check(game.last_result.has("battle") and int(game.last_result["place"]) >= 2, "%s: result has a place" % m)
+		game.quit_to_menu()
+		await _frames(5)
+		check(game.arena == null and game.mode == "chase", "%s: back to the chase" % m)
+		var left := game.get_children().filter(func(n): return str(n.name).begins_with("Rival_") and not n.is_queued_for_deletion())
+		check(left.is_empty(), "%s: rivals cleaned up (%d left)" % [m, left.size()])
+	# And the next chase is a normal one.
+	await _start(1, true)
+	await _frames(240)
+	check(game.civilians.active_cars().size() > 0, "civilians back after a battle")
+	check(game.director.active, "police back after a battle")
