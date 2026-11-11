@@ -15,12 +15,21 @@ extends Control
 ##    pedal is hidden and the car accelerates by itself.
 ##  * Each touch belongs to the control it started on (index ownership), so
 ##    sliding a steering thumb across the screen never presses BRAKE.
+##  * Workshop gear: JUMP (hydraulics) and DROP (caltrops / mines) appear
+##    above the pedals when the car has them fitted; a ring shows recharge.
 ##  * Pause: top-left chip.
+##  * Tablets: the layout is drawn in canvas units, which are physically much
+##    bigger on an iPad than on a phone. `ui_k` scales the controls (and the
+##    steering travel) back toward phone size in real millimetres, so thumbs
+##    don't have to travel twice as far.
 
 signal pause_pressed
 
 var input: DriveInput
 var car: Car
+var kit: BattleKit
+## Control scale: 1 on a phone, smaller on a tablet (see header).
+var ui_k := 1.0
 var steer_mode := "zones"
 var _steer_touch := -1
 var _steer_origin := Vector2.ZERO
@@ -37,6 +46,33 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_IGNORE
 	steer_mode = Settings.steer_mode
+	ui_k = control_scale(get_viewport_rect().size)
+
+
+## Physical size of a canvas unit vs. a typical iPhone in landscape (~0.0035
+## inch per unit); tablets come out at 0.45-0.65 of that, clamped so buttons
+## still end up a little larger in the hand than on a phone.
+static func control_scale(vp: Vector2) -> float:
+	if OS.has_feature("web") or not OS.has_feature("mobile"):
+		return float(OS.get_environment("NS_UI_K")) if OS.get_environment("NS_UI_K") != "" else 1.0
+	var dpi := DisplayServer.screen_get_dpi()
+	var ss := Vector2(DisplayServer.screen_get_size())
+	if dpi <= 0 or ss.y <= 0.0 or vp.y <= 0.0:
+		return 1.0
+	var inch_per_unit := (ss.y / vp.y) / float(dpi)
+	return clampf(0.0035 / inch_per_unit * 1.3, 0.62, 1.0)
+
+
+func steer_full_px() -> float:
+	return FULL_LOCK_PX * ui_k
+
+
+func _has_jump() -> bool:
+	return kit != null and kit.has_jump()
+
+
+func _has_drop() -> bool:
+	return kit != null and kit.has_drop()
 
 
 func _pedal_mode() -> bool:
@@ -46,22 +82,28 @@ func _pedal_mode() -> bool:
 func _layout() -> void:
 	var vp := get_viewport_rect().size
 	var sa := _safe(vp)
-	var gw := 112.0
-	var gh := 176.0
+	var k := ui_k
+	var gw := 112.0 * k
+	var gh := 176.0 * k
 	if _pedal_mode():
 		_rects["gas"] = Rect2(sa.end.x - gw - 4, sa.end.y - gh - 4, gw, gh)
-		_rects["brake"] = Rect2(_rects["gas"].position.x - 108 - 14, sa.end.y - 124 - 4, 108, 124)
-		_rects["drift"] = Rect2(_rects["brake"].position.x - 96 - 16, sa.end.y - 96 - 8, 96, 96)
-		_rects["nitro"] = Rect2(sa.end.x - 92 - 14, _rects["gas"].position.y - 92 - 14, 92, 92)
+		_rects["brake"] = Rect2(_rects["gas"].position.x - 108 * k - 14 * k, sa.end.y - 124 * k - 4, 108 * k, 124 * k)
+		_rects["drift"] = Rect2(_rects["brake"].position.x - 96 * k - 16 * k, sa.end.y - 96 * k - 8, 96 * k, 96 * k)
+		_rects["nitro"] = Rect2(sa.end.x - 92 * k - 14 * k, _rects["gas"].position.y - 92 * k - 14 * k, 92 * k, 92 * k)
+		# Workshop gear sits over BRAKE / DRIFT (thumb reaches up, not across).
+		_rects["jump"] = Rect2(_rects["brake"].position.x + 8 * k, _rects["brake"].position.y - 84 * k - 14 * k, 84 * k, 84 * k)
+		_rects["drop"] = Rect2(_rects["drift"].position.x + 6 * k, _rects["drift"].position.y - 80 * k - 14 * k, 80 * k, 80 * k)
 	else:
-		var r := 62.0
+		var r := 62.0 * k
 		_rects["gas"] = Rect2(-1000, -1000, 1, 1)
 		_rects["brake"] = Rect2(sa.end.x - r * 2.0 - 8, sa.end.y - r * 2.0 - 8, r * 2.0, r * 2.0)
-		_rects["drift"] = Rect2(sa.end.x - r * 4.0 - 26, sa.end.y - r * 1.6 - 8, r * 1.6, r * 1.6)
-		_rects["nitro"] = Rect2(sa.end.x - r * 1.6 - 16, sa.end.y - r * 3.8 - 18, r * 1.4, r * 1.4)
+		_rects["drift"] = Rect2(sa.end.x - r * 4.0 - 26 * k, sa.end.y - r * 1.6 - 8, r * 1.6, r * 1.6)
+		_rects["nitro"] = Rect2(sa.end.x - r * 1.6 - 16 * k, sa.end.y - r * 3.8 - 18 * k, r * 1.4, r * 1.4)
+		_rects["jump"] = Rect2(_rects["drift"].position.x - r * 0.1, _rects["drift"].position.y - r * 1.4 - 14 * k, r * 1.4, r * 1.4)
+		_rects["drop"] = Rect2(_rects["drift"].position.x - r * 1.6 - 14 * k, sa.end.y - r * 1.4 - 8, r * 1.4, r * 1.4)
 	_rects["pause"] = Rect2(sa.position.x, sa.position.y, 46, 46)
-	_rects["left"] = Rect2(sa.position.x + 4, sa.end.y - 130, 120, 120)
-	_rects["right"] = Rect2(sa.position.x + 136, sa.end.y - 130, 120, 120)
+	_rects["left"] = Rect2(sa.position.x + 4, sa.end.y - 130 * k, 120 * k, 120 * k)
+	_rects["right"] = Rect2(sa.position.x + 136 * k, sa.end.y - 130 * k, 120 * k, 120 * k)
 
 
 func _safe(vp: Vector2) -> Rect2:
@@ -91,6 +133,15 @@ func _input(ev: InputEvent) -> void:
 				pause_pressed.emit()
 				get_viewport().set_input_as_handled()
 				return
+			if hit == "jump" or hit == "drop":
+				if hit == "jump":
+					input.touch_jump = true
+				else:
+					input.touch_drop = true
+				_btn_touch[t.index] = hit
+				_pressed[hit] = true
+				get_viewport().set_input_as_handled()
+				return
 			if hit != "":
 				_btn_touch[t.index] = hit
 				_pressed[hit] = true
@@ -112,8 +163,8 @@ func _input(ev: InputEvent) -> void:
 			_steer_pos = d.position
 			# Let the origin follow a thumb that drifts too far (no dead strip).
 			var off := _steer_pos.x - _steer_origin.x
-			if absf(off) > FULL_LOCK_PX * 1.3:
-				_steer_origin.x = _steer_pos.x - signf(off) * FULL_LOCK_PX * 1.3
+			if absf(off) > steer_full_px() * 1.3:
+				_steer_origin.x = _steer_pos.x - signf(off) * steer_full_px() * 1.3
 		elif _btn_touch.has(d.index):
 			var cur: String = _btn_touch[d.index]
 			var hit := _button_at(d.position)
@@ -146,6 +197,10 @@ func _button_at(p: Vector2) -> String:
 	order.append_array(["brake", "drift"])
 	if _has_nitro():
 		order.append("nitro")
+	if _has_jump():
+		order.append("jump")
+	if _has_drop():
+		order.append("drop")
 	if steer_mode == "buttons":
 		order.append_array(["left", "right"])
 	for k in order:
@@ -159,7 +214,7 @@ func _apply() -> void:
 	var steer := 0.0
 	if steer_mode == "zones" and _steer_touch >= 0:
 		var off := _steer_pos.x - _steer_origin.x
-		var mag := maxf(absf(off) - DEAD_PX, 0.0) / (FULL_LOCK_PX - DEAD_PX)
+		var mag := maxf(absf(off) - DEAD_PX * ui_k, 0.0) / (steer_full_px() - DEAD_PX * ui_k)
 		steer = clampf(signf(off) * mag, -1.0, 1.0)
 	elif steer_mode == "buttons":
 		steer = (1.0 if _pressed.has("right") else 0.0) - (1.0 if _pressed.has("left") else 0.0)
@@ -195,6 +250,7 @@ func button_centres() -> Dictionary:
 
 
 func release_all() -> void:
+	ui_k = control_scale(get_viewport_rect().size)
 	_btn_touch.clear()
 	_pressed.clear()
 	_steer_touch = -1
@@ -222,19 +278,35 @@ func _draw() -> void:
 			var c := (_rects["nitro"] as Rect2).get_center()
 			var rad := (_rects["nitro"] as Rect2).size.x * 0.5 + 5.0
 			draw_arc(c, rad, -PI / 2, -PI / 2 + TAU * car.nitro_amount, 40, Color(UiStyle.BLUE, 0.85), 3.0, true)
+	if _has_jump():
+		var jr := kit.jump_ready()
+		_round(_rects["jump"], "JUMP", _pressed.has("jump"), 14, UiStyle.AMBER)
+		_ring(_rects["jump"], jr, UiStyle.AMBER)
+	if _has_drop():
+		var lbl := ("SPIKES" if kit.rear == "caltrops" else "MINE") + " %d" % kit.charges
+		_round(_rects["drop"], lbl, _pressed.has("drop"), 13, UiStyle.RED)
+		_ring(_rects["drop"], kit.recharge_k() if kit.charges < kit.max_charges else 1.0, UiStyle.RED)
 	if steer_mode == "buttons":
 		_round(_rects["left"], "◀", _pressed.has("left"), 30)
 		_round(_rects["right"], "▶", _pressed.has("right"), 30)
 	elif steer_mode == "zones" and _steer_touch >= 0:
 		# The steering slider under the thumb.
 		var o := _steer_origin
-		draw_line(o + Vector2(-FULL_LOCK_PX, 0), o + Vector2(FULL_LOCK_PX, 0), Color(1, 1, 1, 0.25), 4.0, true)
+		var fl := steer_full_px()
+		draw_line(o + Vector2(-fl, 0), o + Vector2(fl, 0), Color(1, 1, 1, 0.25), 4.0, true)
 		for sx in [-1.0, 1.0]:
-			draw_line(o + Vector2(sx * FULL_LOCK_PX, -10), o + Vector2(sx * FULL_LOCK_PX, 10), Color(1, 1, 1, 0.35), 2.0, true)
+			draw_line(o + Vector2(sx * fl, -10), o + Vector2(sx * fl, 10), Color(1, 1, 1, 0.35), 2.0, true)
 		draw_circle(o, 5.0, Color(1, 1, 1, 0.35))
-		var k := clampf(_steer_pos.x - o.x, -FULL_LOCK_PX, FULL_LOCK_PX)
+		var k := clampf(_steer_pos.x - o.x, -fl, fl)
 		draw_circle(o + Vector2(k, 0), 24.0, Color(1, 1, 1, 0.22))
 		draw_arc(o + Vector2(k, 0), 24.0, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
+
+
+## Recharge ring round a round button (full = ready).
+func _ring(r: Rect2, k: float, col: Color) -> void:
+	var c := r.get_center()
+	var rad := r.size.x * 0.5 + 5.0
+	draw_arc(c, rad, -PI / 2, -PI / 2 + TAU * clampf(k, 0.0, 1.0), 40, Color(col, 0.85), 3.0, true)
 
 
 ## A pedal: a frosted rounded slab, filled with its colour while pressed.

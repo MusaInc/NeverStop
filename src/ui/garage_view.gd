@@ -121,6 +121,14 @@ func _process(dt: float) -> void:
 		size = (get_parent() as Control).size
 	if size.x > 8.0 and Vector2i(size) != vp.size:
 		vp.size = Vector2i(size)
+	# 4:3 (iPad): keep the 16:9 horizontal angle so the car isn't cropped.
+	var asp := size.x / maxf(size.y, 1.0)
+	if asp < 16.0 / 9.0 - 0.01:
+		cam.keep_aspect = Camera3D.KEEP_WIDTH
+		cam.fov = 57.0
+	else:
+		cam.keep_aspect = Camera3D.KEEP_HEIGHT
+		cam.fov = 34.0
 	if car:
 		if not _drag:
 			_spin = move_toward(_spin, 0.35, dt * 0.3)

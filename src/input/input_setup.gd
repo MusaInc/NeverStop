@@ -10,6 +10,8 @@ const BINDINGS := {
 	"handbrake": [[KEY_SPACE], JOY_BUTTON_A],
 	"nitro": [[KEY_SHIFT], JOY_BUTTON_X],
 	"recover": [[KEY_R], JOY_BUTTON_Y],
+	"jump": [[KEY_E], JOY_BUTTON_B],
+	"drop": [[KEY_Q], JOY_BUTTON_LEFT_SHOULDER],
 	"camera": [[KEY_C], JOY_BUTTON_RIGHT_SHOULDER],
 	"pause": [[KEY_ESCAPE, KEY_P], JOY_BUTTON_START],
 	"toggle_debug": [[KEY_F3], JOY_BUTTON_BACK],

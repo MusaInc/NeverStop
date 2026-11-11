@@ -135,8 +135,8 @@ func _draw_overlay() -> void:
 		var off := sp - ctr
 		var edge := off.length() > rad - 9.0
 		if edge:
-			if m[1] != "roadblock" and m[1] != "heli":
-				continue  # only roadblocks and the helicopter are pinned to the rim
+			if m[1] != "roadblock" and m[1] != "heli" and m[1] != "repair_pin":
+				continue  # only roadblocks, the helicopter and the nearest repair are pinned to the rim
 			sp = ctr + off.normalized() * (rad - 9.0)
 		_marker(ov, sp, String(m[1]), edge)
 		shown += 1
@@ -158,7 +158,7 @@ func _draw_overlay() -> void:
 
 
 static func _prio(kind: String) -> int:
-	return {"roadblock": 4, "heli": 3, "heavy": 2, "patrol": 2, "interceptor": 2, "wreck": 0}.get(kind, 1)
+	return {"repair_pin": 5, "repair": 3, "roadblock": 4, "heli": 3, "heavy": 2, "patrol": 2, "interceptor": 2, "wreck": 0}.get(kind, 1)
 
 
 func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
@@ -174,6 +174,12 @@ func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
 			ov.draw_arc(p, 5.0, t * 9.0 + PI, t * 9.0 + PI * 1.7, 8, UiStyle.WHITE, 1.6, true)
 		"wreck":
 			ov.draw_circle(p, 2.6, Color(0.6, 0.6, 0.62, 0.7))
+		"repair", "repair_pin":
+			# A green plus on a dark disc (pulsing when it's the nearest).
+			var pr := 7.0 + (1.0 + sin(t * 5.0)) * (1.0 if kind == "repair_pin" else 0.0)
+			ov.draw_circle(p, pr, Color(0.03, 0.06, 0.04, 0.85))
+			ov.draw_rect(Rect2(p + Vector2(-4.5, -1.5), Vector2(9, 3)), UiStyle.GREEN)
+			ov.draw_rect(Rect2(p + Vector2(-1.5, -4.5), Vector2(3, 9)), UiStyle.GREEN)
 		_:
 			# Police: a dot flashing red/blue; heavy units bigger.
 			var r := 4.6 if kind == "heavy" else 3.6

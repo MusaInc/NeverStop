@@ -16,7 +16,7 @@ const DEFAULTS := {
 	"cash_earned": 0,
 	"car": "kestrel",
 	"owned": ["kestrel"],
-	"cars": {},          # id -> {"upgrades": {engine, grip, armour, nitro}, "paint": idx, "wheel": id}
+	"cars": {},          # id -> {"upgrades": {engine, grip, armour, nitro}, "mods": {ram, plating, ...}, "paint": idx, "wheel": id}
 	"paints": [0, 1],    # owned paint indices (CarCatalog.PAINTS)
 	"wheels": ["steel"], # owned wheel styles
 	"start": "downtown",
@@ -142,9 +142,17 @@ func upgrades(car_id: String) -> Dictionary:
 	return out
 
 
-## The spec a run uses: catalogue + upgrades + chosen paint/wheels.
+## Workshop mods owned on this car: {key: tier, "rear": fitted dropper}.
+func mods(car_id: String) -> Dictionary:
+	var cs := car_state(car_id)
+	if not cs.has("mods"):
+		cs["mods"] = {}
+	return cs["mods"]
+
+
+## The spec a run uses: catalogue + upgrades + Workshop mods + chosen paint/wheels.
 func car_spec(car_id: String) -> Dictionary:
-	var s := CarCatalog.spec(car_id, upgrades(car_id))
+	var s := CarCatalog.spec(car_id, upgrades(car_id), mods(car_id))
 	var cs := car_state(car_id)
 	var pi := int(cs.get("paint", -1))
 	if pi >= 0 and pi < CarCatalog.PAINTS.size():

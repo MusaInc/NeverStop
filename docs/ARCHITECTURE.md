@@ -20,6 +20,9 @@ Everything else is a plain node or RefCounted built in code.
 - `Destructibles` – a spatial hash of ~3,600 lamp posts, traffic lights,
   signs, bins, benches, hydrants, bollards; cars knock them flying (a pooled
   physical copy, the city's instance removed).
+- `RepairPickups` – 3–6 repair stations live at any time anywhere on the
+  road network (spaced, spawned away from the player, replaced when used);
+  driving through one calls `Car.repair_full()`.
 - Atmosphere (day/night/weather), sea and sky, ad screens, trains: unchanged.
 
 ## Vehicles (`src/vehicle/`)
@@ -31,12 +34,21 @@ Everything else is a plain node or RefCounted built in code.
   holds a slide angle from the steering and catches spins, air levelling,
   lateral force at a raised roll centre (no tripping). Damage from contact
   impulses per side → less power/grip, steering pull, grip loss after side
-  hits, immobilised at 0. `puncture` from spike strips.
-- `CarCatalog` – six player cars, three police kinds, upgrades, paints,
-  wheels. Each car has a distinct profile (see the file header).
+  hits, immobilised at 0 (not the player: `immortal`). Body panels
+  (`parts`: bumpers, bonnet, boot, doors, Workshop plates) wear per hit and
+  emit `part_lost`. `puncture` from spike strips / caltrops / spiked wheels.
+- `CarCatalog` – ten player cars, three police kinds, upgrades, Workshop
+  mods (`MODS`, `apply_mods`), paints, wheels.
 - `CarVisual` – runtime materials keyed off glTF material names, spinning /
   steering / riding wheels, brake lamps, GPU police beacons
   (`beacon.gdshader`), procedural dents (vertices pushed in at the hit).
+  Panels: each body triangle is assigned to a panel by region (`part_map`,
+  cached per body); a lost panel is dropped from the index buffer, thrown
+  as debris and replaced by a bare-metal inset. The Workshop kit (ram bar,
+  plates, cages, spiked hubs, dropper) is built from primitives fitted to
+  the body's `profile`.
+- `BattleKit` – the player's active gear: hydraulic jump, caltrops and
+  proximity mines with charges.
 - Models: `tools/blender/build_vehicles.py` (lofted superellipse bodies,
   boolean wheel wells, painted-on lamps/livery, five wheel styles).
 

@@ -17,11 +17,24 @@ extends RigidBody3D
 ##    downforce, self-levelling and a little yaw control in the air.
 ##  * Damage: contact impulses (from _integrate_forces) become per-side
 ##    damage, a short loss of grip after a heavy side hit, less power, a
-##    steering pull and smoke. `health` 0 = immobilised.
+##    steering pull and smoke. Body panels (bumpers, bonnet, boot, doors and
+##    any Workshop armour plates) wear down per hit and fall off (`parts`,
+##    `part_lost`); a side with its panel gone takes more damage. `health` 0
+##    = immobilised, except the player's car: its engine never dies
+##    (`immortal`), it just gets slower and smokier until it is repaired.
 
 signal impact(strength: float, at: Vector3, normal: Vector3, other: Object)
 signal landed(airtime: float, impact_speed: float)
 signal wrecked
+signal part_lost(part: String, at: Vector3, normal: Vector3)
+signal repaired
+
+## Body panels that can come off, and the impact side that wears each one.
+## (Plates only exist with Workshop armour plating; they take the hit first.)
+const PARTS := ["bumper_f", "bumper_r", "hood", "boot", "door_l", "door_r"]
+const PLATES := ["plate_f", "plate_r", "plate_l", "plate_rt"]
+const SIDE_PARTS := {"front": ["bumper_f", "hood"], "rear": ["bumper_r", "boot"], "left": ["door_l"], "right": ["door_r"]}
+const SIDE_PLATE := {"front": "plate_f", "rear": "plate_r", "left": "plate_l", "right": "plate_rt"}
 
 const GRAVITY := 9.8
 const SLIP_PEAK := deg_to_rad(9.0)
@@ -65,6 +78,12 @@ var last_impact_time := -10.0
 var grip_loss := 0.0           # seconds of reduced grip after a heavy hit
 var puncture := 0.0            # 1 = tyres shredded by a spike strip
 var climbed_kerb := 0.0        # > 0 just after hopping a kerb/ledge (camera, audio)
+## Panel condition 1..0; a part at 0 has fallen off. Plates only with plating.
+var parts := {}
+## The player's engine never dies: damage slows the car, never stops it.
+var immortal := false
+var last_hit_by: Car            # who hit us last (for kill credit)
+var jump_cd := 0.0              # hydraulics cooldown (Workshop)
 
 # wheel layout (local, at the suspension top), filled from spec
 var _wheel_pos: Array[Vector3] = []
@@ -88,6 +107,8 @@ var visual: Node3D             # CarVisual (optional)
 func setup(p_spec: Dictionary, p_role := "player") -> void:
 	spec = p_spec
 	role = p_role
+	immortal = role == "player"
+	_reset_parts()
 	process_physics_priority = 10  # after every driver has set the controls
 	mass = spec["mass"]
 	collision_layer = BODY_LAYER
@@ -181,6 +202,45 @@ func reset_damage() -> void:
 	grip_loss = 0.0
 	puncture = 0.0
 	nitro_amount = 1.0
+	_reset_parts()
+
+
+func _reset_parts() -> void:
+	parts = {}
+	for p in PARTS:
+		parts[p] = 1.0
+	if int(spec.get("mod_plating", 0)) > 0:
+		for p in PLATES:
+			parts[p] = 1.0
+
+
+## A repair pickup: good as new (panels back on, dents out, tyres fixed).
+func repair_full() -> void:
+	var keep_nitro := nitro_amount
+	reset_damage()
+	nitro_amount = maxf(keep_nitro, 0.5)
+	repaired.emit()
+
+
+func parts_lost() -> int:
+	var n := 0
+	for p in parts:
+		if parts[p] <= 0.0:
+			n += 1
+	return n
+
+
+## Hydraulics (Workshop): a hop straight up – over a roadblock, a spike
+## strip or a pile-up. Needs wheels on the ground.
+func hydraulic_jump() -> bool:
+	var lvl := int(spec.get("mod_jump", 0))
+	if lvl <= 0 or jump_cd > 0.0 or wheels_on_ground < 2 or disabled:
+		return false
+	jump_cd = 6.0 if lvl == 1 else 4.0
+	var up := global_basis.y
+	linear_velocity += up * (7.5 if lvl == 1 else 9.5) + Vector3.UP * 0.5
+	angular_velocity *= 0.3
+	return true
 
 
 ## Full lock at this speed. Speed-sensitive the way a good arcade racer is:
@@ -226,6 +286,9 @@ func _physics_process(dt: float) -> void:
 			dmg[k] = maxf(0.0, dmg[k] - rep * dt)
 	# --- controls with damage ---
 	var power_scale: float = 1.0 - 0.45 * maxf(dmg["front"], dmg["rear"]) - 0.25 * (1.0 - health)
+	if immortal:
+		power_scale = maxf(power_scale, 0.62)  # beaten up, never dead
+	jump_cd = maxf(0.0, jump_cd - dt)
 	var thr := 0.0 if disabled else throttle
 	var brk := 1.0 if disabled else brake
 	var str_in := 0.0 if disabled else steer
@@ -510,11 +573,21 @@ func _physics_process(dt: float) -> void:
 		upside_time += dt
 	else:
 		upside_time = 0.0
-	if speed < 1.5 and (throttle > 0.5 or brake > 0.5) and not disabled:
+	if speed < 1.5 and (throttle > 0.3 or brake > 0.5) and not disabled:
 		stuck_time += dt
 	else:
 		stuck_time = maxf(0.0, stuck_time - dt * 2.0)
 
+	# Launch guard: a car squeezed out of a pile-up or a building's collision
+	# can be shot out at absurd speed by the solver (a wreck was seen at
+	# 130 m altitude). Nothing in the game legitimately climbs this fast.
+	if vel.y > 18.0 or speed > 95.0:
+		var lv := vel
+		lv.y = minf(lv.y, 18.0)
+		if lv.length() > 95.0:
+			lv = lv.normalized() * 95.0
+		linear_velocity = lv
+		angular_velocity = angular_velocity.limit_length(6.0)
 	climbed_kerb = maxf(0.0, climbed_kerb - dt)
 	_handle_steps()
 	_handle_impacts()
@@ -650,15 +723,45 @@ func _handle_impacts() -> void:
 		side = "front" if local.z < 0.0 else "rear"
 	var dur: float = spec.get("durability", 1.0)
 	var amount := clampf((dv - 2.0) / 40.0, 0.0, 0.6) / dur
-	# Heavy rammers (trucks, the armoured 4x4) hurt what they hit.
+	# Heavy rammers (trucks, the armoured 4x4, a Workshop ram bar) hurt what they hit.
 	if other is Car:
-		amount *= float((other as Car).spec.get("ram", 1.0))
+		var oc := other as Car
+		amount *= float(oc.spec.get("ram", 1.0))
+		last_hit_by = oc
+		# Spiked wheels: a side swipe shreds the other car's tyres.
+		if int(oc.spec.get("mod_spikes", 0)) > 0 and role != "player":
+			amount *= 1.3
+			if dv > 4.0:
+				puncture = 1.0
 	if role == "civilian":
 		amount *= 1.6
 	elif role == "police":
 		amount *= 2.2  # (cops crash out spectacularly; the player is the tough one)
+	# Workshop: a ram bar shields the nose, plating the whole car.
+	if side == "front":
+		amount *= float(spec.get("front_armour", 1.0))
+	amount *= float(spec.get("plating_k", 1.0))
+	# Panels: an armour plate takes the hit first; a side whose panel has
+	# already come off is open and takes more.
+	var plate: String = SIDE_PLATE[side]
+	var wear := amount * (1.7 if dv > 9.0 else 1.1)
+	if parts.get(plate, 0.0) > 0.0:
+		_wear_part(plate, wear * 0.9, at, n)
+		amount *= 0.6
+	else:
+		var list: Array = SIDE_PARTS[side]
+		var gone := 0
+		for pi in list.size():
+			var pn: String = list[pi]
+			if parts.get(pn, 0.0) <= 0.0:
+				gone += 1
+				continue
+			# The bumper goes first; the bonnet / boot behind it wears slower.
+			_wear_part(pn, wear * (1.0 if pi == 0 else 0.55), at, n)
+		if gone > 0:
+			amount *= 1.0 + 0.25 * gone
 	dmg[side] = minf(1.0, dmg[side] + amount)
-	health = maxf(0.0, health - amount * 0.6)
+	health = maxf(0.2 if immortal else 0.0, health - amount * 0.6)
 	if dv > 9.0 and (side == "left" or side == "right"):
 		grip_loss = clampf(dv / 30.0, 0.2, 0.8)
 	# Arcade: the player's car shrugs off most of the spin from a ram (police
@@ -667,9 +770,18 @@ func _handle_impacts() -> void:
 		var av := angular_velocity
 		angular_velocity = Vector3(av.x, av.y * 0.5, av.z)
 	impact.emit(dv, at, n, other)
-	if health <= 0.0 and not disabled:
+	if health <= 0.0 and not disabled and not immortal:
 		disabled = true
 		wrecked.emit()
+
+
+func _wear_part(pn: String, k: float, at: Vector3, n: Vector3) -> void:
+	var before: float = parts.get(pn, 0.0)
+	if before <= 0.0:
+		return
+	parts[pn] = maxf(0.0, before - k)
+	if parts[pn] <= 0.0:
+		part_lost.emit(pn, at, n)
 
 
 ## Teleport (recovery / pooling): zero momentum, clear wheel history.

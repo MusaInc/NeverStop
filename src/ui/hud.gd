@@ -15,6 +15,8 @@ var director: PursuitDirector
 var score: ScoreKeeper
 var minimap: Minimap
 var contracts: Contracts
+var kit: BattleKit
+var repairs: RepairPickups
 var touch_mode := false
 ## First-run coach: one prompt at a time until the player has done it.
 var _coach: Array = []           # [text_touch, text_keys, kind, need]
@@ -64,6 +66,11 @@ func bind(p_game: Node, p_player: Car, p_director: PursuitDirector, p_score: Sco
 			_warning("HEAT %d" % h))
 	director.roadblock_spawned.connect(func(_p): _warning("ROADBLOCK AHEAD"))
 	director.spiked.connect(func(): _warning("TYRES SPIKED"); flash(UiStyle.RED))
+
+
+## A panel came off the player's car.
+func part_gone(name: String) -> void:
+	_event(name + " GONE", 0, 1.0)
 
 
 func contract_done(c: Dictionary) -> void:
@@ -194,6 +201,10 @@ func _process(dt: float) -> void:
 					ms.append([rb["pos"], "roadblock"])
 			if director.heli:
 				ms.append([director.heli.global_position, "heli"])
+			if repairs and repairs.active and player:
+				var near := repairs.nearest(player.global_position)
+				for rp in repairs.positions():
+					ms.append([rp, "repair_pin" if rp == near else "repair"])
 			minimap.markers = ms
 	for e in _events:
 		e[3] += dt
@@ -339,22 +350,107 @@ func _draw_speed(s: Rect2, vp: Vector2) -> void:
 	UiStyle.text(self, Vector2(cx - w * 0.5, by - 34), t, 54, UiStyle.WHITE, "black")
 	UiStyle.text(self, Vector2(cx + w * 0.5 + 6, by - 36), "KM/H", 12, UiStyle.DIM, "bold")
 	UiStyle.text(self, Vector2(cx + w * 0.5 + 6, by - 52), "G%d" % player.gear, 12, UiStyle.DIM, "bold")
-	# Damage: a bar that drains, with the worst side named once it matters.
+	# Damage: a bar that drains (the engine never dies, the bodywork does),
+	# a top-down diagram of the panels, and the way to the nearest repair.
 	var bw := 180.0
 	var bx := cx - bw * 0.5
 	var bar_y := by - 22
 	draw_rect(Rect2(bx, bar_y, bw, 5), Color(1, 1, 1, 0.14))
 	var hcol := UiStyle.WHITE.lerp(UiStyle.AMBER, clampf((0.8 - player.health) * 2.5, 0.0, 1.0)).lerp(UiStyle.RED, clampf((0.45 - player.health) * 3.0, 0.0, 1.0))
 	draw_rect(Rect2(bx, bar_y, bw * player.health, 5), hcol)
-	var lbl := "VEHICLE" if player.health > 0.45 else ("ENGINE FAILING" if player.health < 0.2 else "HEAVY DAMAGE")
+	var lost := player.parts_lost()
+	var lbl := "BODY" if player.health > 0.45 else "HEAVY DAMAGE"
+	if lost > 0:
+		lbl = "%s · %d PANEL%s OFF" % [lbl, lost, "" if lost == 1 else "S"]
 	if player.puncture > 0.0:
 		lbl = "TYRES SHREDDED"
 	UiStyle.text(self, Vector2(bx, bar_y + 18), lbl, 11, Color(hcol, 0.8), "bold")
+	_draw_car_diagram(Vector2(bx - 40, by - 66))
+	if repairs and repairs.active and (player.health < 0.9 or lost > 0 or player.puncture > 0.0):
+		var rp := repairs.nearest(player.global_position)
+		if rp != Vector3.INF:
+			var dist := player.global_position.distance_to(rp)
+			var rt := "REPAIR  %d m" % int(dist)
+			var rw := UiStyle.text_width(rt, 13, "black")
+			var ry := bar_y + 40
+			var a := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.006) if player.health < 0.5 else 0.85
+			UiStyle.text(self, Vector2(cx - rw * 0.5 + 10, ry), rt, 13, Color(UiStyle.GREEN, a), "black")
+			# Arrow toward it, relative to where the camera looks.
+			if minimap and minimap.camera:
+				var to := rp - player.global_position
+				var yaw: float = minimap.camera.view_yaw()
+				var f := Vector2(-sin(yaw), -cos(yaw))
+				var r := Vector2(-f.y, f.x)
+				var d2 := Vector2(to.x, to.z)
+				var ang := atan2(d2.dot(r), d2.dot(f))
+				var ac := Vector2(cx - rw * 0.5 - 4, ry - 5)
+				var pts := PackedVector2Array([Vector2(0, -7), Vector2(5, 5), Vector2(0, 2), Vector2(-5, 5)])
+				for i in pts.size():
+					pts[i] = ac + pts[i].rotated(ang)
+				draw_colored_polygon(pts, Color(UiStyle.GREEN, a))
+	if kit and not touch_mode:
+		_draw_kit_keys(s)
 	if float(player.spec.get("nitro", 0.0)) > 0.0:
 		var nx := bx + bw - 60
 		UiStyle.text(self, Vector2(nx - 4, bar_y + 18), "NITRO", 11, UiStyle.BLUE, "bold")
 		draw_rect(Rect2(nx + 36, bar_y + 10, 28, 4), Color(1, 1, 1, 0.14))
 		draw_rect(Rect2(nx + 36, bar_y + 10, 28 * player.nitro_amount, 4), UiStyle.BLUE)
+
+
+## Top-down outline of the car, one block per panel: white when fine,
+## amber/red as it wears, an empty outline once it has come off. Armour
+## plates show as a frame round the car.
+func _draw_car_diagram(at: Vector2) -> void:
+	var w := 24.0
+	var h := 44.0
+	var p := player.parts
+	var cols := func(k: String) -> Color:
+		var v: float = p.get(k, 1.0)
+		if v <= 0.0:
+			return Color(1, 1, 1, 0.0)
+		return UiStyle.WHITE.lerp(UiStyle.AMBER, clampf((0.75 - v) * 2.5, 0.0, 1.0)).lerp(UiStyle.RED, clampf((0.4 - v) * 3.0, 0.0, 1.0))
+	var blocks := {
+		"bumper_f": Rect2(3, 0, w - 6, 5), "hood": Rect2(3, 6, w - 6, 9),
+		"door_l": Rect2(0, 16, 5, 14), "door_r": Rect2(w - 5, 16, 5, 14),
+		"boot": Rect2(3, 31, w - 6, 7), "bumper_r": Rect2(3, 39, w - 6, 5),
+	}
+	draw_rect(Rect2(at + Vector2(6, 16), Vector2(w - 12, 14)), Color(1, 1, 1, 0.12))
+	for k in blocks:
+		var r: Rect2 = blocks[k]
+		r.position += at
+		var c: Color = cols.call(k)
+		if c.a > 0.0:
+			draw_rect(r, Color(c, 0.85))
+		else:
+			draw_rect(r, Color(UiStyle.RED, 0.7), false, 1.0)
+	if p.has("plate_l"):
+		for k in ["plate_l", "plate_rt", "plate_f", "plate_r"]:
+			var v: float = p[k]
+			var r2: Rect2 = {"plate_l": Rect2(-4, 14, 2, 18), "plate_rt": Rect2(w + 2, 14, 2, 18),
+				"plate_f": Rect2(2, -4, w - 4, 2), "plate_r": Rect2(2, h + 2, w - 4, 2)}[k]
+			r2.position += at
+			draw_rect(r2, Color(0.6, 0.65, 0.7, 0.9) if v > 0.0 else Color(1, 1, 1, 0.12))
+
+
+## Keyboard / pad: what the Workshop gear is bound to and whether it's ready.
+func _draw_kit_keys(s: Rect2) -> void:
+	var x := s.end.x - 8
+	var y := s.end.y - 8
+	var lines: Array = []
+	if kit.has_jump():
+		var ready := kit.jump_ready()
+		lines.append(["E · JUMP", ready >= 1.0, ready])
+	if kit.has_drop():
+		lines.append(["Q · %s ×%d" % ["CALTROPS" if kit.rear == "caltrops" else "MINES", kit.charges], kit.charges > 0, kit.recharge_k()])
+	for l in lines:
+		var t: String = l[0]
+		var w := UiStyle.text_width(t, 14, "black")
+		var r := Rect2(x - w - 24, y - 30, w + 24, 30)
+		UiStyle.pill(self, r, Color(0, 0, 0, 0.5))
+		if not l[1]:
+			draw_rect(Rect2(r.position.x + 10, r.end.y - 5, (r.size.x - 20) * clampf(l[2], 0.0, 1.0), 2), UiStyle.AMBER)
+		UiStyle.text(self, r.position + Vector2(12, 21), t, 14, UiStyle.WHITE if l[1] else UiStyle.DIM, "black")
+		y -= 36
 
 
 func _draw_bust(vp: Vector2) -> void:

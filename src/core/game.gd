@@ -44,6 +44,8 @@ var fx: VehicleFx
 var props: Destructibles
 var jumps: Jumps
 var speed_fx: SpeedFx
+var repairs: RepairPickups
+var kit: BattleKit
 var menus: Node            # Menus (title, garage, records, settings, pause, results)
 var car_id := "kestrel"
 var last_result := {}
@@ -186,6 +188,24 @@ func _ready() -> void:
 	add_child(audio)
 	audio.attach(self, player, director)
 	score.event.connect(func(_l, pts, _c): if pts > 0: audio.event_chime(pts))
+	repairs = RepairPickups.new()
+	repairs.name = "Repairs"
+	add_child(repairs)
+	repairs.setup(net, player)
+	repairs.collected.connect(_on_repaired)
+	kit = BattleKit.new()
+	kit.name = "BattleKit"
+	add_child(kit)
+	kit.fx = fx
+	kit.audio = audio
+	kit.setup(player)
+	input.kit = kit
+	touch.kit = kit
+	hud.kit = kit
+	hud.repairs = repairs
+	kit.hit.connect(func(kind, _c):
+		if score and state == State.PLAYING:
+			score.award("MINED A COP" if kind == "mines" else "SPIKED A COP", 300.0 if kind == "mines" else 150.0))
 	props.broke.connect(func(kind, at, by):
 		if by == player or player.global_position.distance_to(at) < 60.0:
 			audio.play_at("prop_hit", at, 2.0 if by == player else -2.0)
@@ -273,6 +293,7 @@ func spawn_player(id: String) -> void:
 	input.car = player
 	camera.set_target(player, true)
 	player.impact.connect(_on_player_impact)
+	player.part_lost.connect(_on_part_lost)
 	player.landed.connect(func(a, v):
 		if score:
 			score.on_landed(a, v)
@@ -280,6 +301,10 @@ func spawn_player(id: String) -> void:
 	world.build_all_near(player.global_position, 420.0)
 	if audio:
 		audio.set_player(player)
+	if kit:
+		kit.setup(player)
+	if repairs:
+		repairs.player = player
 	if director:
 		director.player = player
 		civilians.player = player
@@ -317,6 +342,8 @@ func start_run() -> void:
 		director.active = false
 	score.begin()
 	contracts.begin(score, int(args["seed"]) if args.has("seed") else -1)
+	repairs.begin(int(args["seed"]) if args.has("seed") else -1)
+	kit.reset()
 	hud.start_coach(not SaveData.data.get("tutorial_done", false) and bot == null and not args.has("notutorial"))
 	_scenario(args.get("scenario", ""))
 	hud.visible = true
@@ -402,6 +429,8 @@ func enter_menu() -> void:
 	touch.visible = false
 	if audio:
 		audio.menu_mode = true
+	repairs.clear()
+	kit.reset()
 	# Attract mode: the autopilot drives with a couple of cops in tow.
 	bot = AIDriver.new(player)
 	bot.skill = 0.88
@@ -487,6 +516,32 @@ func _on_player_impact(strength: float, at: Vector3, n: Vector3, other: Object) 
 	if fx and strength > 4.0:
 		fx.impact(at, n, strength, player.spec["paint"])
 	Settings.haptic(int(clampf(strength * 4.0, 20.0, 160.0)), clampf(strength / 25.0, 0.3, 1.0))
+
+
+const PART_NAMES := {"bumper_f": "FRONT BUMPER", "bumper_r": "REAR BUMPER", "hood": "BONNET", "boot": "BOOT LID",
+	"door_l": "LEFT DOOR", "door_r": "RIGHT DOOR", "plate_f": "BONNET PLATE", "plate_r": "REAR PLATE",
+	"plate_l": "LEFT PLATE", "plate_rt": "RIGHT PLATE"}
+
+
+func _on_part_lost(part: String, _at: Vector3, _n: Vector3) -> void:
+	if state != State.PLAYING:
+		return
+	if hud:
+		hud.part_gone(PART_NAMES.get(part, part.to_upper()))
+	if audio:
+		audio.play("panel_off", -1.0, randf_range(0.9, 1.1))
+	camera.shake(0.25)
+
+
+func _on_repaired(_at: Vector3) -> void:
+	if state != State.PLAYING:
+		return
+	score.award("REPAIRED", 250.0, false)
+	if audio:
+		audio.play("repair", 0.0)
+	if hud:
+		hud.flash(UiStyle.GREEN, 0.35)
+	Settings.haptic(60, 0.6)
 
 
 func _physics_process(dt: float) -> void:

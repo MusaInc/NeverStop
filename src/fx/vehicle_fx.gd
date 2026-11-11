@@ -304,3 +304,18 @@ func _chunk(at: Vector3, normal: Vector3, strength: float, col: Color) -> void:
 	b.linear_velocity = normal * _rng.randf_range(2, 6) + Vector3(_rng.randf_range(-3, 3), _rng.randf_range(2, 6), _rng.randf_range(-3, 3)) * clampf(strength / 20.0, 0.5, 2.0)
 	b.angular_velocity = Vector3(_rng.randf_range(-12, 12), _rng.randf_range(-12, 12), _rng.randf_range(-12, 12))
 	_debris.append([b, 0.0])
+
+
+## A mine going off: a fireball, a ring of sparks and a column of smoke.
+func explosion(at: Vector3) -> void:
+	for i in 40:
+		var v := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.2, 1.2), _rng.randf_range(-1, 1)).normalized() * _rng.randf_range(4.0, 13.0)
+		sparks.emit(at + Vector3.UP * 0.4, v, _rng.randf_range(0.4, 0.9), 0.16, 0.04, Color(1.0, _rng.randf_range(0.55, 0.85), 0.3, 1.0))
+	for i in 28:
+		fire.emit(at + Vector3(_rng.randf_range(-1.2, 1.2), _rng.randf_range(0.2, 1.4), _rng.randf_range(-1.2, 1.2)),
+			Vector3(_rng.randf_range(-2.5, 2.5), _rng.randf_range(2.0, 6.0), _rng.randf_range(-2.5, 2.5)),
+			_rng.randf_range(0.4, 0.8), 1.4, 0.4, Color(1.0, _rng.randf_range(0.35, 0.65), 0.1, 1.0))
+	for i in 14:
+		smoke.emit(at + Vector3(_rng.randf_range(-1.5, 1.5), _rng.randf_range(0.5, 2.0), _rng.randf_range(-1.5, 1.5)),
+			Vector3(_rng.randf_range(-1.2, 1.2), _rng.randf_range(1.5, 4.0), _rng.randf_range(-1.2, 1.2)),
+			_rng.randf_range(2.0, 3.2), 1.6, 5.0, Color(0.16, 0.15, 0.15, 0.55))

@@ -1,3 +1,58 @@
+# Status: 2026-11-11 (0.4.0)
+
+## 0.4.0: iPad, police fixes, breakable cars, repair stations, the Workshop
+
+- **iPad.** The iOS build now targets iPhone and iPad (`targeted_device_family=2`, Xcode `TARGETED_DEVICE_FAMILY = "1,2"`,
+  iPad icons 152/167 generated, landscape full-screen as before). On a 4:3 screen the chase camera keeps the 16:9
+  horizontal field of view (more sky and street above, nothing cropped at the sides) and so does the garage preview.
+  Touch controls are scaled by real screen size (`TouchDrive.control_scale`: canvas units are ~2.3x bigger in the
+  hand on a 12.9" iPad than on an iPhone), so pedals and the steering slide stay thumb-sized; they still come out a
+  little larger than on a phone. Not checked on a real iPad yet.
+- **Police / map bugs** (new `game.test_2b_police_stay_sane`: a 90 s heat-5 chase, every police car sampled
+  twice a second; checked on 10 seeds):
+  - Police nosed into a wall or wreck sat there for good: the whiskers held the target speed at 0 but the throttle
+    formula still gave 0.4, under the car's 0.5 stuck threshold, so recovery never started. The driver now backs out
+    after 0.9 s blocked, and the stuck threshold is 0.3.
+  - Crippled police (front end at 100 %) reversed in circles forever: the "stuck 6 s and damaged = wreck" rule never
+    fired because the AI's own reverse reset the stuck timer. The director now has a watchdog that measures real
+    progress: a unit that goes nowhere, wanders off the road (away from the player) or ends up inside a building's
+    collision is put back on the road graph out of view, or written off if crippled and in view.
+  - Demoted units kept the car's off-road position, so their minimap dot (and the next spawn) could sit inside a
+    block; they now snap to the nearest lane.
+  - A wreck was occasionally shot 130 m into the air by the solver (squeezed out of a pile-up); cars are now capped
+    at 18 m/s upwards and 95 m/s overall.
+  - Before: 2 inside buildings, 4 stuck per 90 s run. After: 0 inside, 0 stuck, 0 falling through, every map marker on
+    a road (off-road counts are cars chasing across plazas).
+- **Breakable cars.** Bumpers, bonnet, boot and both doors wear per hit and fall off (`Car.parts`, `part_lost`):
+  the panel flies off as debris (16 pieces shared, 9 s each) and primed bare metal shows where it was. A side whose
+  panel is gone takes 25 % more per missing panel. Done by filtering the body's index buffer (no extra draw calls
+  until something falls off). Police and civilians lose panels too.
+- **The engine never dies.** The player's car can't be wrecked by damage any more (`Car.immortal`): health bottoms
+  out at 20 %, power at 62 %, with heavy smoke. Busted still means boxed in and stopped.
+- **Repair stations** (`src/world/repair_pickups.gd`): green beacons 70 m tall, a spinning wrench-cross and a ring
+  on the road. Always 3-6 in the city (a run starts with 4-5; a used one is replaced at once, 230 m+ from the player;
+  another appears every 18-32 s up to 6), at least 200 m apart, anywhere on the road network. Drive through one:
+  panels back on, dents out, tyres fixed, +250. The minimap shows them and pins the nearest to its rim; the HUD shows
+  "REPAIR 340 m" with an arrow once the car is damaged.
+- **Workshop** (garage tab; `CarCatalog.MODS`, `src/vehicle/battle_kit.gd`), Arena-style battle conversions that
+  show on the car (garage preview and in the chase) and can be knocked off again:
+  - Ram Bar: push bar (rams 1.5x, nose takes 40 % less) / spiked plough (2.2x, 60 % less).
+  - Armour Plating: light / heavy / Juggernaut (-20/-35/-50 % damage, heavier, slightly slower). The plates are parts
+    themselves: a hit wears the plate first and it falls off before the bodywork is touched. Juggernaut adds window cages.
+  - Spiked Wheels: side swipes shred police tyres and hit 1.3x harder.
+  - Hydraulics: JUMP hops ~3 m every 6 s / ~5 m every 4 s (over roadblocks and spike strips).
+  - Rear dropper: Caltrops (3/5 charges, puncture police tyres) or Proximity Mines (2/4, wreck the police car that
+    finds one and throw nearby ones about); one fitted at a time, charges refill.
+  - Controls: touch JUMP / DROP buttons above BRAKE / DRIFT (with recharge rings), keys E / Q, pad B / LB.
+- HUD: a top-down diagram of the car's panels beside the damage bar (and the plates round it).
+- Sounds (synthesised, `gen_sounds.py assets/audio battle`): repair, panel off, explosion, hydraulics, drop.
+- Tests: 38 unit/physics + 14 whole-game, all passing (new: panels fall off / engine never dies / repair; Workshop
+  mods; police sanity; repairs + battle kit). Swarm benchmark (heat 9, 105 units, Medium) avg 10.8 ms / p95 14.8
+  (0.3.2 code on the same seed: 13.2 / 17.7). Web build 13/13 in Chromium. iOS Xcode project exports.
+- `tools/lineup.sh` takes mods and missing panels: `marlin+ram2+plating3+spikes1+mines2~bumper_f~door_l`.
+- **Not checked by a person yet:** iPad layout and control size on a real iPad, the feel of losing panels, whether
+  3-6 repair stations is the right number for the map size, Workshop prices against the cash curve.
+
 # Status: 2026-11-09 (0.3.2)
 
 ## 0.3.2: driving pass (`tests/test_driving.gd`, every car, every manoeuvre)

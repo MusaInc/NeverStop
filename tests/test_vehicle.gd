@@ -202,3 +202,70 @@ func test_kerbs_and_low_ledges_are_driven_over(t) -> void:
 		car.queue_free()
 		wall.queue_free()
 		await DriveBench.frames(get_tree(), 2)
+
+
+## Panels wear off with repeated hits; the player's engine never dies; a
+## police car with the same beating is written off; a repair restores all.
+func test_panels_fall_off_engine_never_dies(t) -> void:
+	bench.add_wall(Vector3(0, 1.5, -30), Vector3(30, 3, 1))
+	var car := bench.spawn_car("marlin")
+	var visual := CarVisual.new()
+	car.add_child(visual)
+	visual.setup(car)
+	car.visual = visual
+	var lost: Array = []
+	car.part_lost.connect(func(p, _a, _n): lost.append(p))
+	await DriveBench.frames(get_tree(), 30)
+	for i in 6:
+		car.place(Transform3D(Basis(), Vector3(0, 0.3, 0)), Vector3(0, 0, -24.0))
+		_drive(car, 1.0, 0.0, 0.0)
+		await DriveBench.frames(get_tree(), 90)
+	t.note("player after 6 wall hits at ~86 km/h: health %.2f, lost %s" % [car.health, lost])
+	t.check("bumper_f" in lost, "front bumper came off")
+	t.check(not car.disabled and car.health >= 0.2, "engine still runs (immortal)")
+	var frames := visual.get_children().filter(func(n): return str(n.name).begins_with("Frame_"))
+	t.check(frames.size() == lost.size(), "bare frame shown where each panel was (%d)" % frames.size())
+	_drive(car, 1.0, 0.0, 0.0)
+	car.place(Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.3, 0)))
+	await DriveBench.frames(get_tree(), 90)
+	t.check(car.speed > 4.0, "still drives away, slowly (%.1f m/s)" % car.speed)
+	car.repair_full()
+	await DriveBench.frames(get_tree(), 2)
+	t.check(car.parts_lost() == 0 and car.health == 1.0, "repair puts everything back")
+	t.check(visual.get_children().filter(func(n): return str(n.name).begins_with("Frame_") and not n.is_queued_for_deletion()).is_empty(), "frames cleared")
+	var cop := bench.spawn_car("marlin", Vector3(20, 0, 0), 0.0, "police")
+	await DriveBench.frames(get_tree(), 20)
+	for i in 4:
+		cop.place(Transform3D(Basis(), Vector3(5, 0.3, 0)), Vector3(0, 0, -24.0))
+		_drive(cop, 1.0, 0.0, 0.0)
+		await DriveBench.frames(get_tree(), 90)
+	t.note("police after 4 hits: health %.2f, disabled %s, lost %d" % [cop.health, cop.disabled, cop.parts_lost()])
+	t.check(cop.disabled, "a police car is wrecked by the same beating")
+
+
+## Workshop: hydraulics hop, plating soaks hits, a ram bar shields the nose.
+func test_workshop_mods(t) -> void:
+	var s := CarCatalog.spec("marlin", {}, {"jump": 2, "plating": 3, "ram": 2})
+	t.check(s["mod_jump"] == 2 and s["plating_k"] < 0.6 and s["front_armour"] < 0.5, "mods reach the spec")
+	t.check(float(s["ram"]) > float(CarCatalog.spec("marlin")["ram"]) * 2.0, "spiked plough rams harder")
+	var car := Car.new()
+	car.setup(s, "player")
+	bench.add_child(car)
+	car.place(Transform3D(Basis(), Vector3(0, 0.6, 40)))
+	await DriveBench.frames(get_tree(), 60)
+	t.check(car.parts.has("plate_l"), "plating adds armour plates as parts")
+	var y0 := car.global_position.y
+	var ok := car.hydraulic_jump()
+	var peak := y0
+	for i in 90:
+		await get_tree().physics_frame
+		peak = maxf(peak, car.global_position.y)
+	t.note("hydraulic jump: peak +%.1f m" % (peak - y0))
+	t.check(ok and peak - y0 > 2.5, "hydraulics hop the car > 2.5 m")
+	t.check(not car.hydraulic_jump() or car.jump_cd > 0.0, "cooldown")
+	# A side hit wears the plate first, not the door.
+	car._wear_part("plate_l", 0.0, Vector3.ZERO, Vector3.ZERO)
+	var before: float = car.parts["door_l"]
+	car._impacts.append([20.0, car.global_position - car.global_basis.x * 1.0 + Vector3.UP * 0.6, car.global_basis.x, null])
+	car._handle_impacts()
+	t.check(car.parts["plate_l"] < 1.0 and car.parts["door_l"] == before, "plate takes the side hit, door untouched")

@@ -9,6 +9,7 @@ const AMBER := Color("#FFB020")   # primary: buttons, score, chain
 const RED := Color("#FF3D47")     # siren red: danger, bust, damage
 const BLUE := Color("#3D7DFF")    # siren blue: police, heat
 const WHITE := Color("#F4F5F7")
+const GREEN := Color("#3DFF74")   # repair stations
 const DIM := Color(0.96, 0.96, 0.97, 0.55)
 const INK := Color("#0B0D12")     # asphalt ink: panels, type on amber
 const PANEL := Color(0.043, 0.051, 0.07, 0.62)

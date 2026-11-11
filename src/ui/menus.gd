@@ -32,6 +32,7 @@ var _back_to_about := "title"
 
 func setup(p_game: Node) -> void:
 	game = p_game
+	_garage_tab = str(game.args.get("garage-tab", _garage_tab))  # (captures)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_IGNORE
@@ -564,7 +565,8 @@ func _build_help() -> void:
 	var gas := "GAS pedal (right)" if Settings.accelerate != "auto" else "automatic"
 	for row in [["", "Touch", "Keys", "Pad"], ["Accelerate", gas, "W / ↑", "RT"],
 			["Steer", "slide left thumb", "A D / ← →", "stick"], ["Brake / reverse", "BRAKE pedal", "S / ↓", "LT"],
-			["Drift", "DRIFT", "Space", "A"], ["Nitro", "NOS", "Shift", "X"], ["Recover", "automatic", "R", "Y"],
+			["Drift", "DRIFT", "Space", "A"], ["Nitro", "NOS", "Shift", "X"], ["Jump (kit)", "JUMP", "E", "B"],
+			["Drop (kit)", "SPIKES / MINE", "Q", "LB"], ["Recover", "automatic", "R", "Y"],
 			["Pause", "II", "Esc", "Start"]]:
 		var hb := HBoxContainer.new()
 		for i in 4:
@@ -578,11 +580,14 @@ func _build_help() -> void:
 	right.add_child(_label("THE CHASE", 14, UiStyle.AMBER, "black"))
 	for line in ["The police will catch you. Survive as long as you can.",
 			"Heat rises every minute: interceptors, PIT rammers, heavies, roadblocks, spikes, a helicopter.",
-			"You're only busted when you're boxed in or wrecked – keep moving.",
+			"You're only busted when you're boxed in – keep moving. Your engine never dies,",
+			"but panels dent and fall off and the car gets slower. Green beacons are repair stations:",
+			"drive through one to fix everything. There are always 3–6 somewhere in the city.",
 			"Near misses, drifts, air, flat-out runs and wrecked cops build your CHAIN multiplier.",
 			"Contracts (top-left) pay extra cash. Finish one and a harder one appears.",
 			"Every point is career XP: rank up for cash bonuses.",
-			"Spend cash in the GARAGE on cars, upgrades, paint and wheels."]:
+			"Spend cash in the GARAGE on cars, upgrades, paint and wheels – and in the WORKSHOP",
+			"turn any car into a battle car: ram bars, armour, spiked wheels, hydraulics, spikes and mines."]:
 		var l2 := _label("·  " + line, 15, UiStyle.WHITE, "semibold")
 		l2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l2.custom_minimum_size.x = 440
@@ -946,11 +951,11 @@ func _garage_refresh() -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 6)
 	_garage_box.add_child(tabs)
-	for pair in [["performance", "Performance"], ["style", "Style"], ["start", "Start"]]:
+	for pair in [["performance", "Performance"], ["workshop", "Workshop"], ["style", "Style"], ["start", "Start"]]:
 		var key: String = pair[0]
-		var tb := _btn(pair[1], func(): _garage_tab = key; _garage_refresh(), false, 15)
+		var tb := _btn(pair[1], func(): _garage_tab = key; _garage_refresh(), false, 14)
 		tb.name = "Tab" + pair[1]
-		tb.custom_minimum_size = Vector2(128, 40)
+		tb.custom_minimum_size = Vector2(104, 40)
 		if _garage_tab == key:
 			var on := _chip_style(UiStyle.WHITE, 20)
 			tb.add_theme_stylebox_override("normal", on)
@@ -960,6 +965,8 @@ func _garage_refresh() -> void:
 			tb.add_theme_color_override("font_focus_color", UiStyle.INK)
 		tabs.add_child(tb)
 	match _garage_tab:
+		"workshop":
+			_garage_workshop(id, owned)
 		"style":
 			_garage_style(id, spec)
 		"start":
@@ -1023,6 +1030,80 @@ func _garage_performance(id: String, spec: Dictionary, owned: bool) -> void:
 		b.size_flags_vertical = SIZE_SHRINK_CENTER
 		b.disabled = maxed or not owned or SaveData.cash() < price
 		h.add_child(b)
+
+
+## Workshop: Arena-style battle conversion. Each mod is bought tier by tier
+## and shows on the car straight away; the rear dropper takes caltrops OR
+## mines (both can be owned, one is fitted).
+func _garage_workshop(id: String, owned: bool) -> void:
+	var mods := SaveData.mods(id)
+	var intro := _label("Turn it into a battle car. Everything bolts on and shows on the car – and it can all be knocked off again.", 13, UiStyle.DIM, "semibold")
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.custom_minimum_size.x = 400
+	_garage_box.add_child(intro)
+	if not owned:
+		_garage_box.add_child(_label("Buy this car to convert it.", 14, UiStyle.DIM, "semibold"))
+	for k in CarCatalog.MOD_KEYS:
+		var m: Dictionary = CarCatalog.MODS[k]
+		var tiers: Array = m["tiers"]
+		var lvl := mini(int(mods.get(k, 0)), tiers.size())
+		var maxed := lvl >= tiers.size()
+		var price := 0 if maxed else CarCatalog.mod_price(id, k, lvl)
+		var is_rear: bool = bool(m.get("rear", false))
+		var fitted: bool = str(mods.get("rear", "")) == k
+		var row := PanelContainer.new()
+		row.add_theme_stylebox_override("panel", _chip_style(Color(1, 1, 1, 0.05) if not fitted else Color(UiStyle.AMBER, 0.1), 16))
+		_garage_box.add_child(row)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		row.add_child(h)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 2)
+		col.size_flags_horizontal = SIZE_EXPAND_FILL
+		h.add_child(col)
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 10)
+		col.add_child(top)
+		top.add_child(_label(m["name"], 17, UiStyle.WHITE, "black"))
+		top.add_child(Pips.make(lvl, tiers.size()))
+		var now_t := (str(tiers[lvl - 1]) + "  ✓") if lvl > 0 else "Not fitted"
+		col.add_child(_label(now_t if maxed else (now_t + "   ›  " + str(tiers[lvl])), 12, UiStyle.AMBER if lvl > 0 else UiStyle.DIM, "bold"))
+		var dl := _label(str(m["desc"][mini(lvl, tiers.size() - 1)]), 12, UiStyle.DIM, "semibold")
+		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		dl.custom_minimum_size.x = 250
+		col.add_child(dl)
+		var btns := VBoxContainer.new()
+		btns.add_theme_constant_override("separation", 4)
+		btns.size_flags_vertical = SIZE_SHRINK_CENTER
+		h.add_child(btns)
+		var key: String = k
+		var b := _btn("Max" if maxed else ("$" + UiStyle.thousands(price)), func():
+			if SaveData.spend(price):
+				var mm := SaveData.mods(id)
+				mm[key] = lvl + 1
+				if CarCatalog.MODS[key].get("rear", false) and str(mm.get("rear", "")) == "":
+					mm["rear"] = key
+				SaveData.save()
+				if game.car_id == id:
+					game.select_car(id)
+				toast("%s fitted: %s" % [CarCatalog.MODS[key]["name"], CarCatalog.MODS[key]["tiers"][lvl]])
+				_garage_refresh()
+			else:
+				toast("Not enough cash."), not maxed and owned and SaveData.cash() >= price, 15)
+		b.name = "Mod_" + k
+		b.custom_minimum_size = Vector2(104, 40)
+		b.disabled = maxed or not owned or SaveData.cash() < price
+		btns.add_child(b)
+		if is_rear and lvl > 0 and not fitted:
+			var fb := _btn("Fit", func():
+				SaveData.mods(id)["rear"] = key
+				SaveData.save()
+				if game.car_id == id:
+					game.select_car(id)
+				toast("%s fitted." % CarCatalog.MODS[key]["name"])
+				_garage_refresh(), false, 13)
+			fb.custom_minimum_size = Vector2(104, 32)
+			btns.add_child(fb)
 
 
 func _stat_of(spec: Dictionary, st: Dictionary, key: String) -> float:

@@ -34,6 +34,9 @@ var _ray := PhysicsRayQueryParameters3D.new()
 var _wh_t := 0.0
 var _whisk := Vector3.ZERO       # [steer bias, brake, unused]
 var target_speed := 0.0
+## Seconds spent nosed up against something with nowhere to go (whiskers
+## blocked dead ahead, barely moving): backs out after a moment.
+var blocked_t := 0.0
 
 
 func _init(p_car: Car) -> void:
@@ -180,7 +183,23 @@ func update(dt: float, space: PhysicsDirectSpaceState3D) -> void:
 	var dv := v_target - car.forward_speed
 	car.steer = steer
 	car.handbrake = false
-	if dv > -1.0:
+	# Nosed into a wall / wreck: the whiskers hold the target speed at 0,
+	# which used to leave a gentle 0.4 throttle creeping into it forever
+	# (under the car's own stuck threshold). Back out and swing round.
+	if _whisk.y > 0.5 and spd < 2.0:
+		blocked_t += dt
+		if blocked_t > 0.9:
+			blocked_t = 0.0
+			_reverse_t = 1.4
+			_reverse_steer = -signf(steer + 0.01)
+			Prof.end("driver")
+			return
+	else:
+		blocked_t = maxf(0.0, blocked_t - dt)
+	if v_target < 0.5 and car.forward_speed < 1.0:
+		car.throttle = 0.0
+		car.brake = 0.3
+	elif dv > -1.0:
 		car.throttle = clampf(dv / 4.0 + 0.4, 0.0, 1.0)
 		car.brake = 0.0
 	else:

@@ -380,6 +380,8 @@ func _update_unit(u: PoliceUnit, dt: float, space: PhysicsDirectSpaceState3D, pp
 		if c.disabled or c.upside_time > 2.0 or c.health < 0.12 or (c.stuck_time > 6.0 and c.health < 0.6):
 			_wreck(u)
 			return
+		if u.state != "roadblock" and _watchdog(u, dt, pp):
+			return
 		# Awareness: line of sight (or the helicopter) refreshes last-seen.
 		var d := c.global_position.distance_to(pp)
 		var sees := d < 220.0 and (heli != null or _los(c.global_position, pp))
@@ -399,6 +401,62 @@ func _update_unit(u: PoliceUnit, dt: float, space: PhysicsDirectSpaceState3D, pp
 		u.visual.set_siren(true)
 	else:
 		_advance_virtual(u, dt)
+
+
+## Catches units the physics or the AI got wrong: a car shoved inside a
+## building, wandering off the road, or going nowhere (nosed into a wreck,
+## crippled and reversing in circles). The AI's own stuck recovery resets the
+## car's stuck timer each time it backs out, so the director measures real
+## progress instead. Out of view: put back on the road graph (it drives in
+## again as a fresh car). In view: a crippled car is written off, a healthy
+## one gets a little longer.
+func _watchdog(u: PoliceUnit, dt: float, pp: Vector3) -> bool:
+	u.watch_t -= dt
+	if u.watch_t > 0.0:
+		return false
+	u.watch_t = 0.5
+	var c := u.car
+	var p := c.global_position
+	var near_player := p.distance_to(pp) < 16.0
+	if u.last_watch_pos != Vector3.INF and p.distance_to(u.last_watch_pos) < 1.2 and not near_player:
+		u.idle_t += 0.5
+	else:
+		u.idle_t = maxf(0.0, u.idle_t - 1.0)
+	u.last_watch_pos = p
+	var nr := net.nearest(p, Vector3.ZERO, 30.0)
+	# (Off the road is fine while chasing the player across a plaza or park.)
+	var off_road := (nr.is_empty() or float(nr["dist"]) > 16.0) and p.distance_to(pp) > 40.0
+	u.off_t = u.off_t + 0.5 if off_road else 0.0
+	u.inside_t = u.inside_t + 0.5 if _inside_world(c) else 0.0
+	var bad := u.inside_t >= 1.0 or u.off_t >= 6.0 or u.idle_t >= 6.0
+	if not bad:
+		return false
+	var seen := _visible(p + Vector3.UP)
+	if not seen or u.inside_t >= 1.0:
+		_demote(u)
+		u.state = "intercept" if u.role == "interceptor" else "respond"
+	elif c.health < 0.6 or u.idle_t >= 12.0:
+		_wreck(u)
+	else:
+		return false
+	u.idle_t = 0.0
+	u.off_t = 0.0
+	u.inside_t = 0.0
+	u.last_watch_pos = Vector3.INF
+	return true
+
+
+var _inside_q: PhysicsShapeQueryParameters3D
+func _inside_world(c: Car) -> bool:
+	if _inside_q == null:
+		_inside_q = PhysicsShapeQueryParameters3D.new()
+		var b := BoxShape3D.new()
+		b.size = Vector3(0.6, 0.6, 0.6)
+		_inside_q.shape = b
+		_inside_q.collision_mask = 1
+	_inside_q.transform = Transform3D(Basis(), c.global_position + Vector3.UP * 0.9)
+	_inside_q.exclude = [c.get_rid()]
+	return not get_world_3d().direct_space_state.intersect_shape(_inside_q, 1).is_empty()
 
 
 func _los(a: Vector3, b: Vector3) -> bool:
@@ -579,10 +637,15 @@ func _promote(u: PoliceUnit) -> void:
 
 func _demote(u: PoliceUnit) -> void:
 	var near := net.nearest(u.car.global_position, -u.car.global_basis.z, 40.0, -1, true)
+	if near.is_empty():
+		near = net.nearest(u.car.global_position, Vector3.ZERO, 300.0, -1, true)
 	if not near.is_empty():
 		u.lane = near["lane"]
 		u.s = near["s"]
-	u.pos = u.car.global_position
+		u.pos = net.lane_point(u.lane, u.s)
+		u.heading = net.lane_dir(u.lane, u.s)
+	else:
+		u.pos = u.car.global_position
 	_return_car(u)
 	u.tier = PoliceUnit.Tier.C
 

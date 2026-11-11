@@ -337,6 +337,43 @@ def misc():
     write("busted", level(fade(room(sat(x, 1.5), 0.5, 0.3), 0.001, 0.5), -10), stereo=True)
 
 
+# ------------------------------------------------------------------ battle kit (0.4.0)
+def battle():
+    # Repair pickup: a rising ratchet + bright arpeggio.
+    t = tt(0.9)
+    rat = np.zeros(len(t))
+    for k in range(7):
+        st0 = int((0.02 + k * 0.045) * SR)
+        ln = int(0.03 * SR)
+        if st0 + ln < len(t):
+            tk = np.arange(ln) / SR
+            rat[st0:st0 + ln] += bp(noise(ln), 1500 + k * 300, 6000) * np.exp(-tk * 120)
+    arp = np.zeros(len(t))
+    for i, f in enumerate([660, 880, 1100, 1320]):
+        st0 = int((0.32 + i * 0.07) * SR)
+        tk = np.arange(len(t) - st0) / SR
+        arp[st0:] += np.sin(2 * np.pi * f * tk) * np.exp(-tk * 7)
+    write("repair", level(fade(room(rat * 0.6 + arp * 0.5, 0.3, 0.25)), -14))
+    # Panel off: a sheet-metal clang with a rattle.
+    t = tt(0.9)
+    clang = peaks(noise(len(t)), [420, 1130, 2210, 3480], q=18, gain=6) * np.exp(-t * 7)
+    rattle = bp(noise(len(t)), 1800, 7000) * np.exp(-t * 18) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 23 * t)))
+    write("panel_off", level(fade(room(sat(clang + rattle * 0.6, 1.4), 0.2, 0.2)), -12))
+    # Mine blast: a deep thump + a crackling tail.
+    t = tt(1.8)
+    boom = np.sin(2 * np.pi * (35 + 70 * np.exp(-t * 9)) * t) * np.exp(-t * 3.5)
+    crack = lp(noise(len(t)), 3000) * np.exp(-t * 5) * (0.5 + 0.5 * (np.random.default_rng(7).random(len(t)) > 0.97))
+    write("explosion", level(fade(room(sat(boom * 1.6 + crack * 0.7, 2.0), 0.45, 0.3), 0.001, 0.3), -9), stereo=True)
+    # Hydraulics: a pneumatic pop + hiss; dropper: a clunk.
+    t = tt(0.6)
+    pop = np.sin(2 * np.pi * (90 + 120 * np.exp(-t * 30)) * t) * np.exp(-t * 18)
+    hiss = hp(noise(len(t)), 3000) * np.exp(-t * 6) * 0.5
+    write("hydraulic", level(fade(pop + hiss), -12))
+    t = tt(0.3)
+    cl = np.sin(2 * np.pi * 160 * t) * np.exp(-t * 30) + bp(noise(len(t)), 600, 3000) * np.exp(-t * 40) * 0.6
+    write("drop", level(fade(cl), -14))
+
+
 # ------------------------------------------------------------------ music
 def music():
     """Two stems at 124 BPM, 16 bars: a pulse bed and an intensity layer
@@ -475,6 +512,10 @@ def music_extra():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "battle":
+        battle()
+        print("BATTLE DONE")
+        sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[2] == "music_extra":
         music_extra()
         print("MUSIC DONE")
@@ -487,4 +528,5 @@ if __name__ == "__main__":
     misc()
     music()
     music_extra()
+    battle()
     print("SOUNDS DONE")

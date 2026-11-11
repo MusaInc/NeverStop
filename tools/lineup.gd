@@ -2,6 +2,8 @@ extends Node
 ## Showroom captures in the real game lighting: parks the given cars in a
 ## row on the bridge deck and photographs each one from a few angles.
 ##   tools/lineup.sh [ids] [angles]   (run via the main scene: --lineup=<ids> --lineup-out=<dir>)
+## An id can carry Workshop mods and missing panels:
+##   kestrel+ram2+plating3+spikes1+mines2~bumper_f~door_l
 
 var game: Node
 var ids: Array = []
@@ -13,7 +15,16 @@ func _ready() -> void:
 	_run.call_deferred()
 
 
-func _spec(id: String) -> Dictionary:
+func _spec(full: String) -> Dictionary:
+	var id := full.split("~")[0].split("+")[0]
+	var mods := {}
+	for m in full.split("~")[0].split("+").slice(1):
+		var key := m.rstrip("0123456789")
+		mods[key] = int(m.substr(key.length())) if m.length() > key.length() else 1
+		if key in ["caltrops", "mines"]:
+			mods["rear"] = key
+	if not mods.is_empty():
+		return CarCatalog.spec(id, {}, mods)
 	if id.begins_with("police_"):
 		return CarCatalog.police_spec(id.trim_prefix("police_"))
 	if id.begins_with("civ_"):
@@ -46,6 +57,8 @@ func _run() -> void:
 			car.wheel_comp_visual[w] = 0.08
 		car.global_transform = Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(x0 - i * 16.0, CityLayout.BRIDGE_DECK, CityLayout.BRIDGE_Z + 6.0))
 		cars.append(car)
+		for part in id.split("~").slice(1):
+			v.detach(part, car.global_position, Vector3.ZERO)
 	if game.player:
 		game.player.global_position = Vector3(x0 + 60, CityLayout.BRIDGE_DECK + 0.5, CityLayout.BRIDGE_Z + 5)
 		game.player.freeze = true
@@ -78,6 +91,6 @@ func _run() -> void:
 			for f in 6:
 				await get_tree().process_frame
 			var img := get_viewport().get_texture().get_image()
-			img.save_png("%s/%s_%s.png" % [out_dir, ids[i], vn])
+			img.save_png("%s/%s_%s.png" % [out_dir, i, vn])
 			print("LINEUP ", ids[i], " ", vn)
 	get_tree().quit()

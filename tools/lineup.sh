@@ -10,5 +10,6 @@ timeout 900 xvfb-run -a -s "-screen 0 1280x720x24" godot --rendering-method mobi
   -- --lineup="$ids" --lineup-out="$out" --nopolice --nociv --at=-60,-17,270 --time=${LINEUP_TIME:-15} --save=user://scratch_save.json 2>&1 \
   | grep -E "LINEUP|SCRIPT ERROR|^ERROR" | grep -v leaked | tail -3 || true
 files=()
-for id in ${ids//,/ }; do for v in front rear side; do [ -f "$out/${id}_$v.png" ] && files+=("$out/${id}_$v.png"); done; done
+n=$(echo "$ids" | tr ',' '\n' | wc -l)
+for ((i=0; i<n; i++)); do for v in front rear side; do [ -f "$out/${i}_$v.png" ] && files+=("$out/${i}_$v.png"); done; done
 python3 tools/grid_sheet.py screenshots/lineup_${name}_sheet.png "${files[@]}"

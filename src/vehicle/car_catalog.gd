@@ -166,6 +166,59 @@ const UPGRADES := {
 }
 const UPGRADE_KEYS := ["engine", "grip", "armour", "nitro"]
 
+## Workshop: battle conversions (Arena-style). Each mod has tiers; the
+## rear dropper holds either caltrops or mines (one is fitted at a time).
+##   ram       push bar → spiked plough: rams hurt more, the nose takes less
+##   plating   bolt-on armour plates (they come off before the bodywork does)
+##   spikes    spiked hubs: side swipes shred police tyres
+##   jump      hydraulics: hop over roadblocks and spike strips
+##   caltrops  drop a carpet of spikes behind you (police tyres)
+##   mines     drop proximity mines (police cars)
+const MODS := {
+	"ram": {"name": "Ram Bar", "tiers": ["Push Bar", "Spiked Plough"], "prices": [3000, 8000],
+		"desc": ["Rams hit 1.5× harder, nose takes 40% less", "Rams hit 2.2× harder, nose takes 60% less"]},
+	"plating": {"name": "Armour Plating", "tiers": ["Light Plate", "Heavy Plate", "Juggernaut"], "prices": [4000, 9000, 16000],
+		"desc": ["Bolt-on plates soak hits first · −20% damage", "Thicker plates · −35% damage", "Window cages, full plate · −50% damage, heavier"]},
+	"spikes": {"name": "Spiked Wheels", "tiers": ["Hub Spikes"], "prices": [6500],
+		"desc": ["Side swipes shred police tyres, 1.3× damage"]},
+	"jump": {"name": "Hydraulics", "tiers": ["Jump Kit", "Big Air Kit"], "prices": [8000, 14000],
+		"desc": ["Hop ~3 m · every 6 s", "Hop ~5 m · every 4 s"]},
+	"caltrops": {"name": "Caltrop Dropper", "tiers": ["3 Charges", "5 Charges"], "prices": [5000, 9000], "rear": true,
+		"desc": ["Drop spikes behind you · recharges", "More charges, faster recharge"]},
+	"mines": {"name": "Proximity Mines", "tiers": ["2 Mines", "4 Mines"], "prices": [7500, 13000], "rear": true,
+		"desc": ["Drop a mine: wrecks the police car that finds it", "More mines, faster recharge"]},
+}
+const MOD_KEYS := ["ram", "plating", "spikes", "jump", "caltrops", "mines"]
+
+
+## Applies fitted Workshop mods to a spec. `mods` = {key: tier (1-based), "rear": "caltrops"|"mines"|""}.
+static func apply_mods(s: Dictionary, mods: Dictionary) -> void:
+	var ram := int(mods.get("ram", 0))
+	if ram > 0:
+		s["ram"] = float(s["ram"]) * [1.0, 1.5, 2.2][ram]
+		s["front_armour"] = [1.0, 0.6, 0.4][ram]
+		s["mod_ram"] = ram
+	var pl := int(mods.get("plating", 0))
+	if pl > 0:
+		s["plating_k"] = [1.0, 0.8, 0.65, 0.5][pl]
+		s["mass"] = float(s["mass"]) * (1.0 + 0.04 * pl)
+		s["top_speed"] = float(s["top_speed"]) * (1.0 - 0.012 * pl)
+		s["mod_plating"] = pl
+	if int(mods.get("spikes", 0)) > 0:
+		s["mod_spikes"] = 1
+	s["mod_jump"] = int(mods.get("jump", 0))
+	var rear := str(mods.get("rear", ""))
+	if rear in ["caltrops", "mines"] and int(mods.get(rear, 0)) > 0:
+		s["mod_rear"] = rear
+		s["mod_rear_lvl"] = int(mods[rear])
+
+
+static func mod_price(id: String, key: String, tier: int) -> int:
+	var prices: Array = MODS[key]["prices"]
+	var mult: float = CARS.get(id, {}).get("up_cost", 1.0)
+	return int(round(float(prices[mini(tier, prices.size() - 1)]) * mult / 50.0) * 50)
+
+
 const PAINTS := [
 	["Arctic", Color(0.88, 0.88, 0.86), 0], ["Graphite", Color(0.16, 0.17, 0.19), 0],
 	["Signal Red", Color(0.62, 0.05, 0.04), 300], ["Deep Blue", Color(0.08, 0.18, 0.45), 300],
@@ -181,7 +234,7 @@ const WHEELS := [["steel", "Steel", 0], ["five", "Five-Spoke", 400], ["split", "
 const ORDER := ["kestrel", "marlin", "scout", "brute", "vanta", "goliath", "warden", "halcyon", "mammoth", "stiletto"]
 
 
-static func spec(id: String, upgrades := {}) -> Dictionary:
+static func spec(id: String, upgrades := {}, mods := {}) -> Dictionary:
 	var s := BASE.duplicate()
 	s.merge(CARS.get(id, CARS["kestrel"]), true)
 	s["id"] = id
@@ -196,6 +249,8 @@ static func spec(id: String, upgrades := {}) -> Dictionary:
 	if n > 0:
 		s["nitro"] = maxf(s["nitro"], 0.35) + UPGRADES["nitro"]["per_level"] * n
 		s["nitro_time"] += n * 0.8
+	if not mods.is_empty():
+		apply_mods(s, mods)
 	return s
 
 

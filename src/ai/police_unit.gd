@@ -42,6 +42,12 @@ var roadblock_id := -1
 var spawn_time := 0.0
 var close_time := 0.0         # seconds spent within 12 m of the player
 var hit_player_t := -10.0
+# Watchdog (director): seconds without progress / off the road / inside geometry.
+var idle_t := 0.0
+var off_t := 0.0
+var inside_t := 0.0
+var watch_t := 0.0
+var last_watch_pos := Vector3.INF
 
 
 func is_physical() -> bool:

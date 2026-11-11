@@ -349,3 +349,141 @@ func test_z_long_session_stays_stable() -> void:
 	note("5 min: heat %d, peak units %d, nodes %d -> %d, static memory %.0f -> %.0f MB" % [game.director.heat, peak_units, n0, n1, mem0 / 1e6, mem1 / 1e6])
 	check(n1 < n0 + 600, "node count bounded")
 	check(mem1 < mem0 * 1.5 + 50e6, "memory bounded")
+
+
+## Police sanity over a long chase: nobody falls through the world, sits
+## inside a building, lingers off-road or stuck, and the minimap shows only
+## units that really exist where they really are.
+func test_2b_police_stay_sane() -> void:
+	await _start(5)
+	var d: PursuitDirector = game.director
+	var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.new()
+	q.collision_mask = Car.RAY_MASK
+	var counts := {"fell": 0, "inside": 0, "offroad": 0, "stuck": 0, "hidden": 0, "marker": 0, "samples": 0}
+	var stuck_t := {}
+	var off_t := {}
+	var box := PhysicsShapeQueryParameters3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = Vector3(0.6, 0.6, 0.6)
+	box.shape = bs
+	box.collision_mask = 1
+	for i in 60 * 90:
+		await get_tree().physics_frame
+		if game.state == game.State.BUSTED:
+			await _start(5)
+		if i % 30 != 0:
+			continue
+		var pp: Vector3 = game.player.global_position
+		for u: PoliceUnit in d.units:
+			if not u.car:
+				# Virtual units: their marker should be on a road.
+				var nv: Dictionary = game.net.nearest(u.pos, Vector3.ZERO, 30.0)
+				if nv.is_empty():
+					counts["marker"] += 1
+				continue
+			var c: Car = u.car
+			counts["samples"] += 1
+			if not c.visible or c.freeze or c.global_position.y < -100.0:
+				counts["hidden"] += 1
+				note("unit %d (%s) has a pooled car but is in the chase" % [u.id, u.state])
+				continue
+			var p := c.global_position
+			q.from = p + Vector3.UP * 1.0
+			q.to = p + Vector3.DOWN * 30.0
+			q.exclude = [c.get_rid()]
+			if space.intersect_ray(q).is_empty():
+				counts["fell"] += 1
+				note("unit %d %s at %s: no ground under it (v %s, ground_y %.1f, tier %d, hp %.2f)" % [u.id, u.state, p.snapped(Vector3.ONE), c.linear_velocity.snapped(Vector3.ONE), game.layout.ground_y(p.x, p.z), u.tier, c.health])
+			box.transform = Transform3D(Basis(), p + Vector3.UP * 0.9)
+			box.exclude = [c.get_rid()]
+			var ins := space.intersect_shape(box, 1)
+			off_t["in%d" % u.id] = off_t.get("in%d" % u.id, 0.0) + 0.5 if not ins.is_empty() else 0.0
+			if off_t["in%d" % u.id] == 2.0:
+				counts["inside"] += 1
+				var col: Object = ins[0]["collider"]
+				note("unit %d %s at %s: inside %s (%s)" % [u.id, u.state, p.snapped(Vector3.ONE), col.name if col is Node else col, (col as Node).get_parent().name if col is Node and (col as Node).get_parent() else ""])
+			if u.state == "wrecked" or u.state == "roadblock":
+				continue
+			var nr: Dictionary = game.net.nearest(p, Vector3.ZERO, 40.0)
+			var off := (nr.is_empty() or float(nr["dist"]) > 18.0) and p.distance_to(pp) > 40.0
+			off_t[u.id] = off_t.get(u.id, 0.0) + 0.5 if off else 0.0
+			if off_t[u.id] == 5.0:
+				counts["offroad"] += 1
+				note("unit %d %s off-road for 5 s at %s" % [u.id, u.state, p.snapped(Vector3.ONE)])
+			var slow := c.speed < 1.5 and p.distance_to(pp) > 15.0
+			stuck_t[u.id] = stuck_t.get(u.id, 0.0) + 0.5 if slow else 0.0
+			if stuck_t[u.id] == 8.0:
+				counts["stuck"] += 1
+				var dv: AIDriver = u.driver
+				note("unit %d %s stuck 8 s at %s (hp %.2f, stuck %.1f) thr %.2f brk %.2f str %.2f path %d rem %d direct %s tspd %.1f cap %.1f whisk %s dmg %s" % [u.id, u.state, p.snapped(Vector3.ONE), c.health, c.stuck_time,
+					c.throttle, c.brake, c.steer, dv.path.size(), dv.remaining(), dv.direct_target != Vector3.INF, dv.target_speed, dv.speed_cap, dv._whisk, c.dmg])
+	note("police sanity: %s" % counts)
+	check(counts["fell"] == 0, "no police car falls through the world")
+	check(counts["inside"] == 0, "no police car inside a building")
+	check(counts["hidden"] == 0, "every unit in the chase has a live car")
+	check(counts["stuck"] <= 2, "police don't sit stuck")
+	check(counts["offroad"] <= 2, "police don't wander off-road")
+	check(counts["marker"] == 0, "minimap markers are on roads")
+
+
+## Repair stations: always 3-6 live, spread out, far from the player when
+## they appear; driving through one fixes the car and another appears.
+## Mines from the Workshop dropper wreck police cars.
+func test_2c_repairs_and_battle_kit() -> void:
+	await _start(3)
+	var rp: RepairPickups = game.repairs
+	var lo := 99
+	var hi := 0
+	var min_gap := INF
+	for i in 60 * 40:
+		await get_tree().physics_frame
+		if i % 60 == 0:
+			var n := rp.live.size()
+			lo = mini(lo, n)
+			hi = maxi(hi, n)
+			var ps := rp.positions()
+			for a in ps.size():
+				for b in range(a + 1, ps.size()):
+					min_gap = minf(min_gap, (ps[a] as Vector3).distance_to(ps[b]))
+	note("repairs live %d..%d over 40 s, closest pair %.0f m" % [lo, hi, min_gap])
+	check(lo >= RepairPickups.MIN_LIVE and hi <= RepairPickups.MAX_LIVE, "between 3 and 6 repair stations at all times")
+	check(min_gap > 100.0, "spread across the map")
+	# Batter the car, then drive into the nearest station.
+	var p: Car = game.player
+	p.health = 0.3
+	p.dmg["front"] = 0.8
+	p._wear_part("bumper_f", 2.0, p.global_position, Vector3.FORWARD)
+	p._wear_part("door_l", 2.0, p.global_position, Vector3.LEFT)
+	check(p.parts_lost() == 2, "two panels off")
+	var target := rp.nearest(p.global_position)
+	var before := rp.collected_count
+	game.bot = null
+	p.place(Transform3D(Basis(), target + Vector3.UP * 0.5))
+	await _frames(10)
+	check(rp.collected_count == before + 1, "drove through a repair station")
+	check(p.health == 1.0 and p.parts_lost() == 0 and p.dmg["front"] == 0.0, "the car is good as new")
+	check(rp.live.size() >= RepairPickups.MIN_LIVE, "a replacement appears (%d live)" % rp.live.size())
+	var far := true
+	for q in rp.positions():
+		if (q as Vector3).distance_to(target) < 30.0:
+			far = false
+	check(far, "the used one is gone")
+	# Battle kit: a mine under a police car wrecks it.
+	var cop: Car = null
+	for i in 60 * 20:
+		await get_tree().physics_frame
+		for u in game.director.units:
+			if u.car and u.alive():
+				cop = u.car
+				break
+		if cop:
+			break
+	check(cop != null, "a police car to test on")
+	if cop:
+		var w0: int = game.director.stats["wrecked"]
+		game.kit._explode(cop.global_position, cop)
+		await _frames(5)
+		note("mine: police health %.2f, wrecked %d -> %d" % [cop.health, w0, game.director.stats["wrecked"]])
+		check(game.director.stats["wrecked"] > w0, "a mine wrecks the police car")
+	game.args.erase("bot")

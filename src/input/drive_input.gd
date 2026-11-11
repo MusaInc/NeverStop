@@ -14,6 +14,10 @@ var touch_brake := 0.0
 var touch_handbrake := false
 var touch_nitro := false
 var touch_active := false
+## Workshop gear (one-shot presses from touch; keys/pad read here).
+var kit: BattleKit
+var touch_jump := false
+var touch_drop := false
 var _steer_smooth := 0.0
 
 
@@ -50,6 +54,13 @@ func _physics_process(dt: float) -> void:
 	car.brake = brake
 	car.handbrake = Input.is_action_pressed("handbrake") or touch_handbrake
 	car.nitro = Input.is_action_pressed("nitro") or touch_nitro
+	if kit:
+		if Input.is_action_just_pressed("jump") or touch_jump:
+			kit.jump()
+		if Input.is_action_just_pressed("drop") or touch_drop:
+			kit.drop()
+	touch_jump = false
+	touch_drop = false
 	Prof.end("input")
 
 

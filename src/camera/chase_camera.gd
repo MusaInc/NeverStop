@@ -191,7 +191,20 @@ func _chase(dt: float) -> void:
 	var fov := base_fov + pow(sp_t, 1.5) * 16.0 + nitro_fov + _fov_kick
 	if reduce_motion:
 		fov = base_fov + sp_t * 8.0
-	cam.fov = lerpf(cam.fov, fov, 1.0 - exp(-4.0 * dt))
+	cam.fov = lerpf(cam.fov, fit_fov(fov), 1.0 - exp(-4.0 * dt))
+
+
+## FOVs are tuned for 16:9 and wider (the vertical angle is kept, so wide
+## phones see more road at the sides). On a narrower screen – an iPad's 4:3 –
+## keep the 16:9 horizontal angle instead, so the road ahead isn't cropped
+## at the sides; the extra height shows more sky and street.
+func fit_fov(v_deg: float) -> float:
+	var vp := get_viewport().get_visible_rect().size if get_viewport() else Vector2(16, 9)
+	var aspect := vp.x / maxf(vp.y, 1.0)
+	if aspect >= 16.0 / 9.0 - 0.01:
+		return v_deg
+	var h := 2.0 * atan(tan(deg_to_rad(v_deg) * 0.5) * 16.0 / 9.0)
+	return minf(rad_to_deg(2.0 * atan(tan(h * 0.5) / aspect)), 100.0)
 
 
 func _orbit(dt: float) -> void:
@@ -219,7 +232,7 @@ func _orbit(dt: float) -> void:
 		want.y = maxf(want.y, (hit["position"] as Vector3).y + 1.5)
 	global_position = global_position.lerp(want, 1.0 - exp(-3.0 * dt))
 	look_at(cp + Vector3.UP * 0.5, Vector3.UP)
-	cam.fov = lerpf(cam.fov, 52.0, 1.0 - exp(-2.0 * dt))
+	cam.fov = lerpf(cam.fov, fit_fov(52.0), 1.0 - exp(-2.0 * dt))
 
 
 func _fixed(dt: float) -> void:
@@ -227,7 +240,7 @@ func _fixed(dt: float) -> void:
 	var cp := target.global_position + Vector3.UP * 0.6
 	if global_position.distance_to(cp) > 0.5:
 		look_at(cp, Vector3.UP)
-	cam.fov = lerpf(cam.fov, 45.0, 1.0 - exp(-2.0 * dt))
+	cam.fov = lerpf(cam.fov, fit_fov(45.0), 1.0 - exp(-2.0 * dt))
 
 
 func _apply_shake(dt: float) -> void:
