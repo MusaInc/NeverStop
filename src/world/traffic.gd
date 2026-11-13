@@ -138,7 +138,14 @@ func build_network() -> void:
 			var base_line := pc
 			if loop and base_line[0].distance_to(base_line[-1]) < 0.1:
 				base_line = base_line.slice(0, base_line.size() - 1)
-			for o in offs:
+			var piece_offs: Array = offs
+			if layout.expressway and r.get("name", "") == "diagonal":
+				# In the expressway's corridor the inner lanes are up on the deck
+				# (added below): only the outer, local lanes stay on the street.
+				var mid := pc[pc.size() / 2]
+				if not layout.expressway.project(mid.x, mid.y, 2.0).is_empty():
+					piece_offs = [7.0]
+			for o in piece_offs:
 				for sgn: float in [1.0, -1.0]:
 					var ln := CityLayout._offset_line(base_line, o * sgn)
 					if sgn < 0.0:
@@ -163,6 +170,15 @@ func build_network() -> void:
 					ln.reverse()
 				_add_lane(ln, false, 14.0, piece, [], func(xp: float, _z: float) -> float:
 					return CityInfrastructure.bridge_height(layout, xp))
+		piece += 1
+	# The Diagonal Expressway: its two lanes, lifted onto the deck.
+	if layout.expressway:
+		var ex := layout.expressway
+		for sgn: float in [1.0, -1.0]:
+			var ln := CityLayout._offset_line(ex.line, Expressway.LANE * sgn)
+			if sgn < 0.0:
+				ln.reverse()
+			_add_lane(ln, false, Expressway.SPEED, piece, [], ex.height_at)
 		piece += 1
 	# Roundabouts: two lanes, one way (anticlockwise seen from above, north up).
 	for rb in R.roundabouts:
@@ -259,10 +275,19 @@ var _seg_grid := {}
 
 
 ## Nearest point of each lane passing within JOIN_R of p: lane -> [distance, s].
+## Up on a deck (the bridge, or any part of an expressway ramp off the
+## street): such lane points only join others up there.
+func _elevated(p: Vector3) -> bool:
+	var lift := p.y - layout.terrain.road_y(p.x, p.z)
+	if lift > 3.0:
+		return true
+	return layout.expressway != null and lift > 0.4 and layout.expressway.covers(p.x, p.z, 0.5)
+
+
 func _near(p: Vector3) -> Dictionary:
 	var out := {}
 	var p2 := Vector2(p.x, p.z)
-	var elevated := p.y - layout.terrain.road_y(p.x, p.z) > 3.0
+	var elevated := _elevated(p)
 	var k := Vector2i(floori(p.x / 32.0), floori(p.z / 32.0))
 	for dx in range(-1, 2):
 		for dz in range(-1, 2):
@@ -274,7 +299,7 @@ func _near(p: Vector3) -> Dictionary:
 				var b := Vector2(lp[i + 1].x, lp[i + 1].z)
 				var q := Geometry2D.get_closest_point_to_segment(p2, a, b)
 				var d := q.distance_to(p2)
-				if elevated != (lp[i].y - layout.terrain.road_y(lp[i].x, lp[i].z) > 3.0):
+				if elevated != _elevated(lp[i]):
 					continue  # one is up on the bridge deck, the other on the ground
 				if d < JOIN_R and d < float(out.get(li, [INF])[0]):
 					out[li] = [d, (i + q.distance_to(a) / maxf(a.distance_to(b), 1e-4)) * STEP]
@@ -361,6 +386,11 @@ func _connect() -> void:
 	_seg_grid.clear()
 
 
+## Both ends up on a deck (a connector along the deck itself).
+func on_level_pair(A: Vector3, B: Vector3) -> bool:
+	return _elevated(A) and _elevated(B)
+
+
 ## A curved connector lane from (A, dA) to (B, dB) joining lane `to` at s_to.
 func _connector(A: Vector3, dA: Vector3, B: Vector3, dB: Vector3, from: int, to: int, s_to: float, handle := -1.0,
 		check := true) -> int:
@@ -380,6 +410,12 @@ func _connector(A: Vector3, dA: Vector3, B: Vector3, dB: Vector3, from: int, to:
 		var bi := layout.block_at(line[i].x, line[i].y)
 		if bi >= 0 and layout.blocks[bi]["kind"] in ["block", "plaza", "green", "park"]:
 			return -1
+	# Nor through an expressway ramp's walls (under the high deck is fine).
+	if layout.expressway and not on_level_pair(A, B):
+		for i in range(1, line.size() - 1):
+			var lf := layout.expressway.lift_at(line[i].x, line[i].y, 0.6)
+			if lf > 0.3 and lf < Expressway.WALL_BELOW + 0.5:
+				return -1
 	# Heights: ease between the two ends (a connector up on the bridge deck
 	# stays on the deck instead of dropping to the terrain under it).
 	var on_level := absf(A.y - layout.terrain.road_y(A.x, A.z)) > 1.0 or absf(B.y - layout.terrain.road_y(B.x, B.z)) > 1.0

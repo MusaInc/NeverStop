@@ -285,7 +285,9 @@ func _viaduct(pts: PackedVector3Array) -> void:
 				# (No pier over the strait, nor in a junction's mouth: the span
 				# carries across it.)
 				var junction := p.x > CityLayout.RIVER_EDGE and L.roads.field_at(Vector2(p.x, p.z)).w < 2.0
-				if not _over_water(Vector2(p.x, p.z)) and not junction:
+				# (Nor where the expressway passes under: the span carries over it.)
+				var under := L.expressway != null and L.expressway.covers(p.x, p.z, 2.5)
+				if not _over_water(Vector2(p.x, p.z)) and not junction and not under:
 					var dir := _at(pts, sp + 2.0) - _at(pts, sp - 2.0)
 					dir.y = 0.0
 					dir = dir.normalized()

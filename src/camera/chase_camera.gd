@@ -189,8 +189,10 @@ func _chase(dt: float) -> void:
 	if frac.size() == 2 and frac[0] < 1.0:
 		lens = from + (lens - from) * maxf(frac[0], 0.15)
 	# Above the ground.
-	_ray.from = lens + Vector3.UP * 3.0
-	_ray.to = lens - Vector3.UP * 1.0
+	# (From just above the lens: from 3 m up it found the expressway deck
+	# overhead and popped the lens on top of it.)
+	_ray.from = lens + Vector3.UP * 1.0
+	_ray.to = lens - Vector3.UP * 1.5
 	_ray.exclude = [car.get_rid()]
 	var hit := space.intersect_ray(_ray)
 	if not hit.is_empty():

@@ -294,6 +294,9 @@ class MapPainter:
 					for v: Vector3 in (ln["pts"] as PackedVector3Array):
 						p2.append(Vector2(v.x, v.z))
 					_line(p2, 3.0, RAIL)
+			if L.expressway:
+				_line(L.expressway.line, 13.0, Color(0.1, 0.1, 0.11))
+				_line(L.expressway.line, 9.0, Color(0.95, 0.72, 0.3))
 		# The suspension bridge and its approach onto Westbank.
 		var z := CityLayout.BRIDGE_Z
 		_line(PackedVector2Array([Vector2(56.0, z), Vector2(CityLayout.APPROACH_END, z)]), 20.0, BRIDGE.darkened(0.2))

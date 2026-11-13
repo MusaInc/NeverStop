@@ -1,3 +1,54 @@
+# Status: 2026-11-13 (1.1.0 in progress)
+
+## Rooftop Rumble on the city's own roofs (`Arena._build_rooftops`)
+
+- No more steel decks on stilts: the battle floors are 5-7 existing towers' roofs, exactly as the
+  city draws and collides them (heights 129-179 m in the current city). Candidates: plain towers
+  within 430 m of downtown, roofs 30-260 m up, 14-60 m across, open sky over them (no crowned
+  deco/stone towers: their corner piers block the edges).
+- Links (added geometry only): `ramp` steep concrete climbs (up to 40 %), `road` elevated roads
+  with lamp posts, `narrow` 4.4 m girder crossings, `bridge` steel bridges, and `gap` jump roads
+  (the two longest flat roads have a 7 m gap in the middle with a chevroned lip each side: the
+  take-off one way and the landing the other; ~50 km/h clears it). Kicker `jump`s between roofs
+  are supported too, but this city has no towers close enough at the right heights. Wedges climb
+  each roof's 0.3 m parapet lip onto a link. Amber strips mark the roof edges.
+- Layout: clusters grown from every tower, the top 16 linked for real (shortest links first, never
+  two crossing at a similar height or leaving a roof from the same spot) and scored after keeping
+  the largest connected group, so every roof reaches every other.
+- Roof plant on the battle roofs is hidden while a battle runs (`Arena.clear_roofs`, via
+  `CityWorld.broken`) and comes back after; props never collide with cars.
+- Start slots are checked against the physics (flat roof under, nothing solid over).
+- Bots: route by cheapest path (jumps one way, a little dearer), line up tightly for narrow
+  crossings, and commit to a jump flat out with the edge sense off until they land; a bot knocked
+  onto a jump road goes for the end it faces.
+- Out: off every surface and 5 m under the level the car was last on (or the lowest surface
+  within 12 m, so jumping down is fine), or off for 3 s. Sparks and a crash where it went over;
+  a knocked-out rival that hits the street far below explodes (`Arena.crashed_down`).
+- `game.test_9c_battle_arenas` updated: roofs are the towers' own, links continuous except jump
+  gaps, and it keeps watching after the player is out (it used to stop there, so whether it saw
+  three knockouts depended on how fast the player's autopilot went over).
+- `ARENA_DEBUG=1` prints every knockout (who, where, which piece).
+
+## Diagonal Expressway (`src/world/expressway.gd`)
+
+- An elevated dual carriageway (one 16 m/s lane each way, central barrier, edge barriers, lamps on
+  the median) ~7.4 m over the Grand Diagonal: up a ramp out of the first roundabout east of the
+  bridge landing, over the Spine / City Loop roundabout and the cathedral roundabout (pillars on the
+  roundabout islands, under the City Loop viaduct), down a ramp after the last roundabout, then at
+  street level to the coastal ring.
+- Underneath, the Diagonal keeps one local lane each way (`Traffic.build_network` drops the inner
+  lanes in the corridor; the express lanes are those lanes, lifted with `Expressway.height_at`), so
+  side streets and roundabouts still connect. `Traffic._elevated` keeps deck lanes from joining
+  street lanes under them; connectors never cut through a ramp's walls.
+- Geometry is a set-piece kit like the bridge approach. The deck collides on the **street** layer
+  (`CityLayout.street_obbs` → `CityWorld` "ExpresswayDeck"), so the AI's wall whiskers don't see a
+  ramp as a wall; barriers, ramp walls and pillars collide as walls. City Loop piers skip the
+  expressway's footprint. Jumps are never placed on it. The minimap draws it amber.
+- Camera: the "lens above the ground" ray starts 1 m over the lens (from 3 m it found the deck
+  overhead and popped the lens on top of it).
+- Checked: road audit 0 dead ends; autopilot drives the whole length (132 km/h on the deck, down to
+  the coast); the local lane under it and the roundabouts work.
+
 # Status: 2026-11-13 (1.0.0, TestFlight)
 
 ## Feedback pass (from playing 0.5.0)

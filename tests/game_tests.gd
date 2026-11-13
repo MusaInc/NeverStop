@@ -601,18 +601,27 @@ func test_9c_battle_arenas() -> void:
 			check(ar.decks.size() == 1 and ar.floor_y > game.layout.ground_y(ar.centre.x, ar.centre.z) + 50.0, "sky: disc floats over the city")
 		else:
 			check(ar.decks.size() >= 4, "rooftops: %d decks" % ar.decks.size())
-			check(ar.floor_y > 250.0, "rooftops: decks up in the towers (%.0f m)" % ar.floor_y)
+			check(ar.floor_y > 100.0, "rooftops: roofs up in the towers (%.0f m)" % ar.floor_y)
+			var styles: Array = ar.links.map(func(l): return l[5])
+			check(styles.has("ramp") or styles.has("gap") or styles.has("jump"), "rooftops: ramps / jumps (%s)" % str(styles))
+			for di in ar.decks:
+				check(ar.pieces[di].get("roof", false), "rooftops: battle floors are the towers' own roofs")
 			for a in ar.decks.size():
 				for b in ar.decks.size():
 					if a != b:
 						check(not ar.route(a, b).is_empty(), "rooftops: deck %d reaches deck %d" % [a, b])
-			# Every bridge is a continuous ramp: surface under its centre line every 2 m.
+			# Every link is a continuous surface: under its centre line every 2 m
+			# (a jump road's open gap and its lips aside; kicker jumps fly).
 			for l in ar.links:
+				if l[5] == "jump":
+					continue
 				var pa: Vector3 = l[3]
 				var pb: Vector3 = l[4]
 				var n := int(pa.distance_to(pb) / 2.0)
 				for i in n + 1:
 					var p := pa.lerp(pb, float(i) / maxf(n, 1))
+					if l[5] == "gap" and p.distance_to((pa + pb) * 0.5) < Arena.GAP * 0.5 + Arena.GAP_LIP.x + 0.5:
+						continue
 					q.from = p + Vector3.UP * 2.0
 					q.to = p - Vector3.UP * 2.0
 					var hit := space.intersect_ray(q)
@@ -626,11 +635,15 @@ func test_9c_battle_arenas() -> void:
 		await _frames(150)
 		var moved := 0.0
 		for i in ar.cars.size():
-			moved = maxf(moved, (ar.cars[i] as Car).global_position.distance_to(starts[i]))
+			var mv := (ar.cars[i] as Car).global_position.distance_to(starts[i])
+			if mv > 1.0:
+				note("%s: %s moved %.1f m from %s" % [m, (ar.cars[i] as Car).name, mv, (starts[i] as Vector3).snapped(Vector3.ONE)])
+			moved = maxf(moved, mv)
 		check(moved < 1.0, "%s: cars held during the countdown (moved %.1f m)" % [m, moved])
 		# The fight.
 		var frames := 0
-		while frames < 60 * 70 and ar.alive.size() > 3 and game.state == game.State.PLAYING:
+		# (The others fight on after the player is out: keep watching them.)
+		while frames < 60 * 70 and ar.alive.size() > 3:
 			await _frames(30)
 			frames += 30
 			for c: Car in ar.alive:

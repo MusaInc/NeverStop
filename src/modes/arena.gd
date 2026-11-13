@@ -34,6 +34,26 @@ const BRIDGE_W := 8.0
 const DECK_MARGIN := 3.5
 const DECK_T := 1.2
 const RAISE := 24.0          # most a rooftop deck stands above its roof
+## Rooftops: which roofs qualify, how links are made.
+const ROOF_Y := Vector2(30.0, 260.0)       # roof heights considered (m)
+const ROOF_HALF := Vector2(7.0, 30.0)      # roof half sizes considered (m)
+const STEEP := 0.4                         # steepest ramp (rise / run)
+const NARROW_W := 4.4
+const LIP := 0.32                          # parapet lip (BuildingMesher.PARAPET) + a hair
+const WEDGE_L := 2.6                       # wedge from the roof up to a link's end
+const JUMP_GAP := Vector2(5.0, 19.0)       # clear gap a jump spans (m)
+const JUMP_DROP := 9.0                     # most a jump lands below its takeoff
+const GAP := 7.0                           # open gap in a jump road
+const GAP_LIP := Vector2(5.5, 0.9)         # each lip: length, rise
+const GAP_MIN_LINK := 40.0
+const KICK_L := 6.5
+const KICK_H := 1.8
+const KICK_W := 6.0
+## KO: off every surface and this far under the level you were on (or the
+## lowest surface you're near), or off for too long.
+const KO_FALL := 5.0
+const KO_OFF_T := 3.0
+signal crashed_down(car: Car, at: Vector3)
 
 var kind := Kind.SKY
 var layout: CityLayout
@@ -61,6 +81,8 @@ var _body: StaticBody3D
 var _slots: Array = []
 var _touch_t := 0.0
 static var _shader: Shader
+var _roof_props: Array = []    # positions of roof plant on the battle roofs
+var _roofs_cleared := false
 
 
 func build(p_layout: CityLayout, p_kind: int) -> Arena:
@@ -202,114 +224,571 @@ func _build_sky() -> void:
 	add_child(core)
 
 
-## Five tall towers close together, decked over and bridged.
+## Rooftop Rumble on the city's own roofs: a cluster of 5-7 existing towers
+## of different heights near downtown, their roofs (exactly as the city
+## draws and collides them) the battle floors, joined by added links:
+##   ramp    steep concrete climbs between roofs of very different heights
+##   road    long elevated roads (asphalt, lane line) over the streets
+##   narrow  thin girder crossings, one car wide
+##   bridge  ordinary steel bridges
+##   jump    a kicker on one roof's edge and nothing else: clear the gap
+##           (one way, from the higher roof or level)
+## No rails anywhere: over the edge is out.
 func _build_rooftops() -> void:
 	var grid := layout._building_grid()
-	var cands: Array = []   # [b, centre2, deck xf, half, deck_y]
+	var cands: Array = []   # [b, centre2, roof xf (top centre), half, roof y]
 	var cbd := CityLayout.CBD_CENTER
 	for b in layout.buildings:
-		if b["kind"] != "normal":
+		if b["kind"] != "normal" or BuildingMesher.shaped(b):
 			continue
 		var c2: Vector2 = layout.base_center(b)
-		if c2.distance_to(cbd) > 300.0:
-			continue
-		var roof := BuildingMesher.roof_y(b)
-		if roof < 170.0:
+		if c2.distance_to(cbd) > 430.0:
 			continue
 		var t: Array = b["tiers"][-1]
+		# (Deco and stone towers over 70 m wear crowns: piers and finials on the roof edge.)
+		if int(b["style"]) in [CityLayout.Style.DECO, CityLayout.Style.STONE] and float(t[5]) > 70.0:
+			continue
+		var roof := BuildingMesher.roof_y(b)
+		if roof < ROOF_Y.x or roof > ROOF_Y.y:
+			continue
+		var half := Vector2((float(t[2]) - float(t[0])) * 0.5, (float(t[3]) - float(t[1])) * 0.5)
+		if minf(half.x, half.y) < ROOF_HALF.x or maxf(half.x, half.y) > ROOF_HALF.y:
+			continue
 		var X := CityLayout.bxf(b)
 		var lc := Vector3((float(t[0]) + float(t[2])) * 0.5, 0.0, (float(t[1]) + float(t[3])) * 0.5)
-		var half := Vector2(maxf((float(t[2]) - float(t[0])) * 0.5 + DECK_MARGIN, 13.0),
-			maxf((float(t[3]) - float(t[1])) * 0.5 + DECK_MARGIN, 13.0))
-		if half.x > 22.0 or half.y > 22.0:
-			continue  # a deck wider than its roof: a car off the edge must drop past the roof
-		var lo := roof + 3.5
 		var w := X * lc
-		var dxf := Transform3D(X.basis.orthonormalized(), Vector3(w.x, lo, w.z))
-		# Nothing else (a spire, a taller neighbour, a crown) in the deck's
-		# space, at any height it might be raised to.
-		if not _box_clear(grid, dxf, half, 0.5, RAISE + 8.0, [b]):
+		var rxf := Transform3D(X.basis.orthonormalized(), Vector3(w.x, roof, w.z))
+		# Open sky over the roof (no taller neighbour or spire leaning over it)
+		# and next to no roof plant in the way.
+		if not _box_clear(grid, rxf, half - Vector2(0.8, 0.8), 0.6, 10.0, [b]):
 			continue
-		cands.append([b, Vector2(w.x, w.z), dxf, half, lo])
-	# Grow the best cluster: from each seed, keep adding the nearest tower a
-	# clear bridge reaches from one already chosen. Decks may stand up to
-	# RAISE m over their roof on a steel frame, so neighbours of different
-	# heights still meet with a gentle ramp.
+		cands.append([b, Vector2(w.x, w.z), rxf, half, roof])
+	# Pairs: which can be bridged (and how steep), which can be jumped.
+	var memo := {}
+	var link_of := func(i: int, j: int) -> Dictionary:
+		var key := Vector2i(mini(i, j), maxi(i, j))
+		if memo.has(key):
+			return memo[key]
+		var r := {}
+		var A: Array = cands[key.x]
+		var B: Array = cands[key.y]
+		var d := (A[1] as Vector2).distance_to(B[1])
+		if d < 135.0:
+			var ends := _link_ends(A, B)
+			var pa: Vector3 = ends[0]
+			var pb: Vector3 = ends[1]
+			var flat := Vector2(pb.x - pa.x, pb.z - pa.z).length()
+			var dy := absf(pb.y - pa.y)
+			if flat > 6.0 and flat < 90.0 and dy / flat <= STEEP and _span_clear(grid, pa, pb, A[0], B[0], 8.0):
+				r["bridge"] = [pa, pb, flat, dy / flat]
+			var gap := flat - 3.0
+			if gap > JUMP_GAP.x and gap < JUMP_GAP.y and dy <= JUMP_DROP \
+					and _span_clear(grid, pa + Vector3.UP * 2.0, pb + Vector3.UP * 2.0, A[0], B[0], 4.0):
+				r["jump"] = [pa, pb, gap]
+		memo[key] = r
+		return r
+	# Grow a cluster from each seed: always the tower that connects to the
+	# most chosen ones, favouring a height the cluster doesn't have yet.
 	var best: Array = []
-	var best_links: Array = []
-	var best_ys := {}
-	for si in cands.size():
-		var ys := {si: float(cands[si][4]) + RAISE * 0.5}
+	var best_score := -INF
+	var ranked: Array = []
+	var seeds := range(cands.size())
+	for si in seeds:
 		var chosen: Array = [si]
-		var lk: Array = []
-		while chosen.size() < 5:
+		while chosen.size() < 7:
 			var pick := -1
-			var pick_d := INF
-			var pick_from := -1
-			var pick_y := 0.0
+			var pick_s := -INF
 			for ci in cands.size():
 				if ci in chosen:
 					continue
+				var links_to := 0
+				var near_h := INF
 				for hi in chosen:
-					var d: float = (cands[ci][1] as Vector2).distance_to(cands[hi][1])
-					if d < 30.0 or d > 82.0 or d >= pick_d:
-						continue
-					var y := clampf(float(ys[hi]), float(cands[ci][4]), float(cands[ci][4]) + RAISE)
-					if _bridge_ok(grid, _at_y(cands[hi], ys[hi]), _at_y(cands[ci], y)):
-						pick = ci
-						pick_d = d
-						pick_from = hi
-						pick_y = y
+					var lk: Dictionary = link_of.call(ci, hi)
+					if lk.has("bridge"):
+						links_to += 1
+					near_h = minf(near_h, absf(float(cands[ci][4]) - float(cands[hi][4])))
+				if links_to == 0:
+					continue
+				var s := links_to * 4.0 + minf(near_h, 18.0) * 0.35 \
+					- (cands[ci][1] as Vector2).distance_to(cands[si][1]) * 0.02
+				if s > pick_s:
+					pick_s = s
+					pick = ci
 			if pick < 0:
 				break
 			chosen.append(pick)
-			ys[pick] = pick_y
-			lk.append([pick_from, pick])
-		# Most decks (up to five), then the highest: the top of the business district.
-		var better := chosen.size() > best.size()
-		if chosen.size() == best.size() and not best.is_empty():
-			better = _mean_y(ys, chosen) > _mean_y(best_ys, best)
-		if better:
+		var ys: Array = chosen.map(func(c): return float(cands[c][4]))
+		var n_links := 0
+		var n_jumps := 0
+		for a in chosen.size():
+			for b2 in range(a + 1, chosen.size()):
+				var lk: Dictionary = link_of.call(chosen[a], chosen[b2])
+				n_links += 1 if lk.has("bridge") else 0
+				n_jumps += 1 if lk.has("jump") else 0
+		var room := 0.0
+		for c in chosen:
+			room += minf((cands[c][3] as Vector2).x, (cands[c][3] as Vector2).y)
+		var score := chosen.size() * 12.0 + minf(ys.max() - ys.min(), 45.0) * 0.5 + minf(n_links, chosen.size() + 3) * 3.0 \
+			+ minf(n_jumps, 2) * 6.0 + room * 0.9
+		ranked.append([score, chosen])
+		if score > best_score:
+			best_score = score
 			best = chosen
-			best_links = lk
-			best_ys = ys
-	for ci in best:
-		cands[ci] = _at_y(cands[ci], best_ys[ci])
-	# One extra link where a pair close enough is clear (loops = escape routes).
-	for i in best.size():
-		for j in range(i + 1, best.size()):
-			var a: int = best[i]
-			var b2: int = best[j]
-			var have := false
-			for l in best_links:
-				if (l[0] == a and l[1] == b2) or (l[0] == b2 and l[1] == a):
-					have = true
-			if have or best_links.size() >= best.size() + 1:
-				continue
-			var d2: float = (cands[a][1] as Vector2).distance_to(cands[b2][1])
-			if d2 < 82.0 and d2 > 30.0 and _bridge_ok(grid, cands[a], cands[b2]):
-				best_links.append([a, b2])
+	if best.is_empty():
+		push_warning("Arena: no rooftop cluster found")
+		return
+	if OS.get_environment("ARENA_DEBUG") != "":
+		for a in best.size():
+			for b2 in range(a + 1, best.size()):
+				var A2: Array = cands[best[a]]
+				var B2: Array = cands[best[b2]]
+				var e2 := _link_ends(A2, B2)
+				var fl := Vector2((e2[1] as Vector3).x - (e2[0] as Vector3).x, (e2[1] as Vector3).z - (e2[0] as Vector3).z).length()
+				print("pair %d-%d flat %.0f dy %.0f clear %s link %s" % [a, b2, fl, absf(A2[4] - B2[4]),
+					_span_clear(grid, e2[0], e2[1], A2[0], B2[0], 8.0), str(link_of.call(best[a], best[b2]).keys())])
+	# Links for a cluster: a spanning set first (every roof reachable by
+	# road), then extra loops, never two links crossing at about the same
+	# height, never two leaving a roof from the same spot. Then keep the
+	# largest group the links actually join. Returns [roofs, links].
+	var place := func(cluster: Array) -> Array:
+		var all_pairs: Array = []
+		for a in cluster.size():
+			for b2 in range(a + 1, cluster.size()):
+				var lk: Dictionary = link_of.call(cluster[a], cluster[b2])
+				if lk.has("bridge"):
+					all_pairs.append([cluster[a], cluster[b2], lk["bridge"]])
+		all_pairs.sort_custom(func(x, y): return float(x[2][2]) < float(y[2][2]))   # shortest first
+		var used: Array = []    # [a, b, pa, pb]
+		var comp := {}
+		for ci in cluster:
+			comp[ci] = ci
+		var find := func(x):
+			while comp[x] != x:
+				x = comp[x]
+			return x
+		for pass_i in 2:
+			for pr in all_pairs:
+				if used.size() >= cluster.size() + 2:
+					break
+				var a: int = pr[0]
+				var b2: int = pr[1]
+				if used.any(func(u): return (u[0] == a and u[1] == b2) or (u[0] == b2 and u[1] == a)):
+					continue
+				var joins: bool = find.call(a) != find.call(b2)
+				if pass_i == 0 and not joins:
+					continue
+				var pa: Vector3 = pr[2][0]
+				var pb: Vector3 = pr[2][1]
+				if not _link_fits(used, pa, pb):
+					continue
+				used.append([a, b2, pa, pb])
+				comp[find.call(a)] = find.call(b2)
+		var groups := {}
+		for ci in cluster:
+			var r0 = find.call(ci)
+			if not groups.has(r0):
+				groups[r0] = []
+			groups[r0].append(ci)
+		var main: Array = []
+		for gk in groups:
+			if (groups[gk] as Array).size() > main.size():
+				main = groups[gk]
+		return [main, used.filter(func(u): return u[0] in main and u[1] in main)]
+	# The best of the top clusters once linked.
+	ranked.sort_custom(func(x, y): return x[0] > y[0])
+	var used: Array = []
+	best_score = -INF
+	var seen := {}
+	for rk in ranked.slice(0, 16):
+		var key := str((rk[1] as Array).duplicate().map(func(v): return v))
+		var sorted_c: Array = (rk[1] as Array).duplicate()
+		sorted_c.sort()
+		key = str(sorted_c)
+		if seen.has(key):
+			continue
+		seen[key] = true
+		var res: Array = place.call(rk[1])
+		var roofs: Array = res[0]
+		var ys2: Array = roofs.map(func(c): return float(cands[c][4]))
+		var room2 := 0.0
+		for c in roofs:
+			room2 += minf((cands[c][3] as Vector2).x, (cands[c][3] as Vector2).y)
+		var sc := roofs.size() * 12.0 + (res[1] as Array).size() * 4.0 + minf(ys2.max() - ys2.min(), 45.0) * 0.5 + room2 * 0.9
+		if roofs.size() >= 2 and sc > best_score:
+			best_score = sc
+			best = roofs
+			used = res[1]
+	# Roofs.
 	var idx := {}
 	floor_y = INF
 	for ci in best:
 		var cd: Array = cands[ci]
-		idx[ci] = pieces.size()
+		idx[ci] = pieces.size()   # (links name decks by piece index, as route() expects)
 		decks.append(pieces.size())
-		pieces.append({"type": "deck", "xf": cd[2], "half": cd[3]})
+		pieces.append({"type": "deck", "xf": cd[2], "half": cd[3], "b": cd[0], "roof": true})
 		floor_y = minf(floor_y, cd[4])
-		_deck_geometry(cd[2], cd[3], cd[4] - BuildingMesher.roof_y(cd[0]))
-	for l in best_links:
-		var A: Array = cands[l[0]]
-		var B: Array = cands[l[1]]
-		var ends := _bridge_ends(A, B)
+		_roof_edge_lights(cd[2], cd[3])
+	var n_narrow := 0
+	# The two longest, flattest roads get a gap in the middle to jump.
+	var gaps: Array = used.filter(func(u):
+		var f := Vector2((u[3] as Vector3).x - (u[2] as Vector3).x, (u[3] as Vector3).z - (u[2] as Vector3).z).length()
+		return f >= GAP_MIN_LINK and absf((u[3] as Vector3).y - (u[2] as Vector3).y) / f <= 0.15)
+	gaps.sort_custom(func(x, y): return (x[2] as Vector3).distance_to(x[3]) > (y[2] as Vector3).distance_to(y[3]))
+	gaps = gaps.slice(0, 2)
+	for u in used:
+		var pa: Vector3 = u[2]
+		var pb: Vector3 = u[3]
+		var flat := Vector2(pb.x - pa.x, pb.z - pa.z).length()
+		var slope := absf(pb.y - pa.y) / flat
+		var style := "bridge"
+		var w := BRIDGE_W
+		if slope > 0.24:
+			style = "ramp"
+			w = 7.0
+		elif flat > 36.0:
+			style = "road"
+			w = 9.0
+		elif flat > 16.0 and slope < 0.1 and n_narrow < 2:
+			style = "narrow"
+			w = NARROW_W
+			n_narrow += 1
+		if u in gaps:
+			style = "gap"
+			w = 8.0
 		var bi := pieces.size()
-		_bridge_geometry(ends[0], ends[1])
-		links.append([idx[l[0]], idx[l[1]], bi, ends[0], ends[1]])
+		var li := links.size()
+		if style == "gap":
+			_gap_geometry(pa, pb, w, li)
+		else:
+			_link_geometry(pa, pb, w, style)
+			pieces[bi]["link"] = li
+		links.append([idx[u[0]], idx[u[1]], bi, pa, pb, style, false])
+	# Jumps: up to two, from the higher roof, where there's no link already
+	# and the kicker's run-up is clear of the other links' ends.
+	var n_jump := 0
+	for a in best.size():
+		for b2 in range(best.size()):
+			if a == b2 or n_jump >= 2:
+				continue
+			var A: int = best[a]
+			var B: int = best[b2]
+			if float(cands[A][4]) + 0.3 < float(cands[B][4]):
+				continue   # take off from the higher roof (or level)
+			if used.any(func(u): return (u[0] == A and u[1] == B) or (u[0] == B and u[1] == A)):
+				continue
+			if links.any(func(l): return l[5] == "jump" and ((l[0] == idx[A] and l[1] == idx[B]) or (l[0] == idx[B] and l[1] == idx[A]))):
+				continue
+			var lk: Dictionary = link_of.call(A, B)
+			if not lk.has("jump"):
+				continue
+			var ends := _link_ends(cands[A], cands[B])
+			var pa: Vector3 = ends[0]
+			var pb: Vector3 = ends[1]
+			var dir := Vector3(pb.x - pa.x, 0.0, pb.z - pa.z).normalized()
+			# Run-up: as long as the roof allows (at least 9 m before the kicker).
+			var run := KICK_L + 9.0
+			while run < KICK_L + 26.0 and _piece_has(idx[A], pa - dir * (run + 1.5), 2.0):
+				run += 1.5
+			if not _piece_has(idx[A], pa - dir * run, 2.0):
+				continue   # no run-up on that roof
+			if not _link_fits(used, pa, pb, 9.0):
+				continue
+			_kicker(pa, dir)
+			links.append([idx[A], idx[B], -1, pa - dir * run, pb + dir * 4.0, "jump", true])
+			used.append([A, B, pa, pb])
+			n_jump += 1
+	# Roof plant on the battle roofs (hidden while a battle runs).
+	for ci in best:
+		var rxf: Transform3D = cands[ci][2]
+		var half: Vector2 = cands[ci][3]
+		var inv := rxf.affine_inverse()
+		for p in layout.props:
+			var o: Vector3 = (p[1] as Transform3D).origin
+			if absf(o.x - rxf.origin.x) > 45.0 or absf(o.z - rxf.origin.z) > 45.0:
+				continue
+			var lp := inv * o
+			if absf(lp.y) < 4.0 and absf(lp.x) < half.x + 1.0 and absf(lp.z) < half.y + 1.0:
+				_roof_props.append(o)
 	var sum := Vector3.ZERO
 	for di in decks:
 		sum += (pieces[di]["xf"] as Transform3D).origin
 	centre = sum / maxf(decks.size(), 1)
-	print("Arena rooftops: %d decks, %d bridges, floor %.0f m" % [decks.size(), links.size(), floor_y])
+	var hs: Array = best.map(func(c): return snappedf(float(cands[c][4]), 1.0))
+	var kinds: Array = links.map(func(l): return l[5])
+	print("Arena rooftops: %d roofs (heights %s), links %s, floor %.0f m" % [decks.size(), str(hs), str(kinds), floor_y])
+
+
+## Roof plant and other props by 8 m cell (to keep battle roofs clear).
+## Hides (or brings back) the roof plant on the battle roofs: the roofs are
+## the arena floor while a battle runs (props never collide with cars, so
+## this is only what's drawn).
+func clear_roofs(world: CityWorld, clear: bool) -> void:
+	if world == null or _roof_props.is_empty() or _roofs_cleared == clear:
+		return
+	_roofs_cleared = clear
+	var keys := {}
+	for o: Vector3 in _roof_props:
+		var k := CityWorld.item_key(o)
+		if clear:
+			world.broken[k] = true
+		else:
+			world.broken.erase(k)
+		keys[Vector2i(floori(o.x / CityWorld.CHUNK), floori(o.z / CityWorld.CHUNK))] = true
+	for key in keys:
+		world.refresh_props(key)
+
+
+func _roof_prop_index() -> Dictionary:
+	var out := {}
+	for p in layout.props:
+		var o: Vector3 = (p[1] as Transform3D).origin
+		if o.y < 20.0:
+			continue
+		var k := Vector2i(floori(o.x / 8.0), floori(o.z / 8.0))
+		if not out.has(k):
+			out[k] = []
+		out[k].append(o)
+	return out
+
+
+func _roof_clutter(index: Dictionary, xf: Transform3D, half: Vector2) -> int:
+	var n := 0
+	var inv := xf.affine_inverse()
+	var r := maxf(half.x, half.y) + 2.0
+	var c := xf.origin
+	for gx in range(floori((c.x - r) / 8.0), floori((c.x + r) / 8.0) + 1):
+		for gz in range(floori((c.z - r) / 8.0), floori((c.z + r) / 8.0) + 1):
+			for o: Vector3 in index.get(Vector2i(gx, gz), []):
+				var lp := inv * o
+				if absf(lp.y) < 3.0 and absf(lp.x) < half.x + 0.5 and absf(lp.z) < half.y + 0.5:
+					n += 1
+	return n
+
+
+## Where a link leaves each roof: on the line between the centres, 1.2 m
+## inside the edge, up on the parapet lip (a short wedge climbs to it).
+func _link_ends(A: Array, B: Array) -> Array:
+	var pa := _edge_point(A[2], A[3], (B[2] as Transform3D).origin, 1.2)
+	var pb := _edge_point(B[2], B[3], (A[2] as Transform3D).origin, 1.2)
+	return [pa + Vector3.UP * LIP, pb + Vector3.UP * LIP]
+
+
+## The span between two roofs (at and just over the deck) is clear of every
+## other building.
+func _span_clear(grid: Dictionary, pa: Vector3, pb: Vector3, ba: Dictionary, bb: Dictionary, w: float) -> bool:
+	var flat := Vector2(pb.x - pa.x, pb.z - pa.z).length()
+	var dir := (pb - pa).normalized()
+	var side := Vector3(-dir.z, 0.0, dir.x).normalized()
+	var n := int(flat / 2.0) + 1
+	for i in n + 1:
+		var p := pa.lerp(pb, float(i) / n)
+		for s: float in [-0.5, 0.0, 0.5]:
+			var q := p + side * w * s
+			for bd in grid.get(Vector2i(floori(q.x / 50.0), floori(q.z / 50.0)), []):
+				if is_same(bd, ba) or is_same(bd, bb):
+					continue
+				for yy: float in [-1.5, 1.0, 5.0]:
+					if layout.inside(bd, Vector3(q.x, q.y + yy, q.z), 0.6):
+						return false
+	return true
+
+
+## A new link from pa to pb doesn't cross another at a similar height, nor
+## start / end within `room` m of another's end.
+func _link_fits(used: Array, pa: Vector3, pb: Vector3, room := 7.0) -> bool:
+	var a2 := Vector2(pa.x, pa.z)
+	var b2 := Vector2(pb.x, pb.z)
+	for u in used:
+		var qa: Vector3 = u[2]
+		var qb: Vector3 = u[3]
+		for e: Vector3 in [qa, qb]:
+			for f: Vector3 in [pa, pb]:
+				if e.distance_to(f) < room:
+					return false
+		var x = Geometry2D.segment_intersects_segment(a2, b2, Vector2(qa.x, qa.z), Vector2(qb.x, qb.z))
+		if x != null:
+			var t1 := a2.distance_to(x) / maxf(a2.distance_to(b2), 0.01)
+			var t2 := Vector2(qa.x, qa.z).distance_to(x) / maxf(Vector2(qa.x, qa.z).distance_to(Vector2(qb.x, qb.z)), 0.01)
+			if absf(lerpf(pa.y, pb.y, t1) - lerpf(qa.y, qb.y, t2)) < 6.0:
+				return false
+	return true
+
+
+func _piece_has(pi: int, p: Vector3, inset: float) -> bool:
+	var pc: Dictionary = pieces[pi]
+	var lp := (pc["xf"] as Transform3D).affine_inverse() * p
+	var half: Vector2 = pc["half"]
+	return absf(lp.x) < half.x - inset and absf(lp.z) < half.y - inset
+
+
+## A slab (collision + mesh) whose top runs a -> b, `w` wide.
+func _slab(a: Vector3, b: Vector3, w: float, t: float, mat: Material) -> Transform3D:
+	var d := b - a
+	var basis := Basis.looking_at(d.normalized(), Vector3.UP)
+	var mid := (a + b) * 0.5
+	var cxf := Transform3D(basis, mid - basis.y * t * 0.5)
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(w, t, d.length())
+	cs.shape = box
+	cs.transform = cxf
+	_body.add_child(cs)
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = box.size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.transform = cxf
+	add_child(mi)
+	return Transform3D(basis, mid)
+
+
+## A link's deck from pa to pb, with a short wedge up onto it from each
+## roof (over the parapet lip), dressed by style.
+func _link_geometry(pa: Vector3, pb: Vector3, w: float, style: String) -> void:
+	var d := pb - pa
+	var flat := Vector3(d.x, 0.0, d.z)
+	var dir := flat.normalized()
+	var length := d.length()
+	var t := 0.9 if style != "narrow" else 0.6
+	var base: Color = {"bridge": Color(0.13, 0.135, 0.15), "road": Color(0.1, 0.1, 0.11), "ramp": Color(0.36, 0.36, 0.35),
+		"narrow": Color(0.16, 0.12, 0.1)}[style]
+	var bxf := _slab(pa, pb, w, t, _deck_mat(2, Vector2(w * 0.5, length * 0.5), base))
+	pieces.append({"type": "bridge", "xf": bxf, "half": Vector2(w * 0.5, length * 0.5), "flat": flat.length(), "style": style})
+	# Wedges from the roof (inside the lip) up to each end.
+	var wm := _metal(Color(0.3, 0.3, 0.32))
+	_slab(pa - dir * WEDGE_L - Vector3.UP * LIP, pa + dir * 0.05, w, 0.4, wm)
+	_slab(pb + dir * WEDGE_L - Vector3.UP * LIP, pb - dir * 0.05, w, 0.4, wm)
+	var basis := bxf.basis
+	var mid := bxf.origin
+	match style:
+		"bridge", "narrow":
+			var steel := _metal(Color(0.55, 0.16, 0.1) if style == "bridge" else Color(0.2, 0.24, 0.3))
+			for s in [-1.0, 1.0]:
+				_box_mesh(Vector3(0.5, 1.6, length), Transform3D(basis, mid + basis.x * s * (w * 0.5 - 0.35) - basis.y * (t + 0.8)), steel)
+			var n := int(length / 5.0)
+			for i in n:
+				var z := -length * 0.5 + (i + 0.5) * length / n
+				_box_mesh(Vector3(w - 0.8, 0.3, 0.3), Transform3D(basis, mid + basis.z * z - basis.y * (t + 1.3)), steel)
+		"road":
+			# Box girder under it, and lamp posts along both edges.
+			var conc := _metal(Color(0.5, 0.5, 0.48))
+			conc.metallic = 0.0
+			conc.roughness = 0.9
+			_box_mesh(Vector3(w * 0.6, 1.8, length), Transform3D(basis, mid - basis.y * (t + 0.9)), conc)
+			var lamp := _glow(Color(1.0, 0.85, 0.55), 2.0)
+			var post := _metal(Color(0.25, 0.26, 0.28))
+			var n2 := maxi(1, int(length / 18.0))
+			for i in n2:
+				var z := -length * 0.5 + (i + 0.5) * length / n2
+				for s in [-1.0, 1.0]:
+					var at: Vector3 = mid + basis.z * z + basis.x * s * (w * 0.5 + 0.25)
+					_box_mesh(Vector3(0.18, 4.0, 0.18), Transform3D(Basis(), at + Vector3.UP * 2.0), post)
+					_box_mesh(Vector3(0.5, 0.18, 0.9), Transform3D(Basis(), at + Vector3.UP * 4.0), lamp)
+		"ramp":
+			# A deep concrete spine with ribs: it reads as a climb.
+			var conc2 := _metal(Color(0.46, 0.46, 0.44))
+			conc2.metallic = 0.0
+			conc2.roughness = 0.9
+			_box_mesh(Vector3(w * 0.7, 2.4, length), Transform3D(basis, mid - basis.y * (t + 1.2)), conc2)
+			var n3 := int(length / 6.0)
+			for i in n3:
+				var z := -length * 0.5 + (i + 0.5) * length / n3
+				_box_mesh(Vector3(w, 0.5, 0.5), Transform3D(basis, mid + basis.z * z - basis.y * (t + 0.25)), conc2)
+	var glow := _glow(Color(1.0, 0.62, 0.12), 2.2)
+	for s in [-1.0, 1.0]:
+		_box_mesh(Vector3(0.18, 0.16, length), Transform3D(basis, mid + basis.x * s * (w * 0.5 + 0.05) - basis.y * 0.3), glow)
+
+
+## An elevated road with a gap in the middle: two halves, each ending in a
+## chevroned lip that rises toward the gap (the take-off going one way, the
+## landing ramp coming the other), warning posts either side.
+func _gap_geometry(pa: Vector3, pb: Vector3, w: float, li: int) -> void:
+	var d := pb - pa
+	var mid := (pa + pb) * 0.5
+	var u := d.normalized()
+	var e1 := mid - u * GAP * 0.5
+	var e2 := mid + u * GAP * 0.5
+	var m1 := e1 - u * GAP_LIP.x
+	var m2 := e2 + u * GAP_LIP.x
+	var base := Color(0.1, 0.1, 0.11)
+	for half_i in 2:
+		var a := pa if half_i == 0 else pb
+		var m := m1 if half_i == 0 else m2
+		var e := e1 if half_i == 0 else e2
+		var length := a.distance_to(m)
+		var xf := _slab(a, m, w, 0.9, _deck_mat(2, Vector2(w * 0.5, length * 0.5), base))
+		var whole := _slab_xf(a, e)
+		pieces.append({"type": "bridge", "xf": whole, "half": Vector2(w * 0.5, a.distance_to(e) * 0.5), "style": "gap",
+			"link": li, "flat": Vector2(e.x - a.x, e.z - a.z).length()})
+		var conc := _metal(Color(0.5, 0.5, 0.48))
+		conc.metallic = 0.0
+		conc.roughness = 0.9
+		_box_mesh(Vector3(w * 0.6, 1.8, length), Transform3D(xf.basis, xf.origin - xf.basis.y * 1.8), conc)
+		# The lip.
+		var lip := e + Vector3.UP * GAP_LIP.y
+		_slab(m - Vector3.UP * 0.02, lip, w, 1.2, _deck_mat(3, Vector2(w * 0.5, GAP_LIP.x * 0.5), Color(0.95, 0.6, 0.06)))
+		var side := Vector3(-u.z, 0.0, u.x).normalized()
+		for s in [-1.0, 1.0]:
+			_box_mesh(Vector3(0.25, 2.2, 0.25), Transform3D(Basis(), lip + side * s * (w * 0.5 + 0.2) + Vector3.UP * 1.1),
+				_glow(Color(1.0, 0.2, 0.1), 2.5))
+		_box_mesh(Vector3(w, 0.15, 0.25), Transform3D(Basis.looking_at(Vector3(u.x, 0.0, u.z).normalized(), Vector3.UP),
+			lip + Vector3.UP * 0.05), _glow(Color(1.0, 0.62, 0.12), 3.0))
+	var glow := _glow(Color(1.0, 0.62, 0.12), 2.2)
+	for half_i in 2:
+		var a2 := pa if half_i == 0 else pb
+		var e3 := e1 if half_i == 0 else e2
+		var bx := _slab_xf(a2, e3)
+		var ln := a2.distance_to(e3)
+		for s in [-1.0, 1.0]:
+			_box_mesh(Vector3(0.18, 0.16, ln), Transform3D(bx.basis, bx.origin + bx.basis.x * s * (w * 0.5 + 0.05) - bx.basis.y * 0.3), glow)
+	# Wedges from the roofs onto the road.
+	var dir := Vector3(d.x, 0.0, d.z).normalized()
+	var wm := _metal(Color(0.3, 0.3, 0.32))
+	_slab(pa - dir * WEDGE_L - Vector3.UP * LIP, pa + dir * 0.05, w, 0.4, wm)
+	_slab(pb + dir * WEDGE_L - Vector3.UP * LIP, pb - dir * 0.05, w, 0.4, wm)
+
+
+func _slab_xf(a: Vector3, b: Vector3) -> Transform3D:
+	return Transform3D(Basis.looking_at((b - a).normalized(), Vector3.UP), (a + b) * 0.5)
+
+
+## A jump: a chevroned kicker ending on the roof's edge, facing `dir`.
+func _kicker(edge: Vector3, dir: Vector3) -> void:
+	var a := edge - dir * KICK_L - Vector3.UP * LIP
+	var b := edge + Vector3.UP * KICK_H
+	var m := _deck_mat(3, Vector2(KICK_W * 0.5, KICK_L * 0.5), Color(0.95, 0.6, 0.06))
+	_slab(a, b, KICK_W, 1.2, m)
+	# A glowing lip on the takeoff edge.
+	var side := Vector3(-dir.z, 0.0, dir.x)
+	_box_mesh(Vector3(KICK_W, 0.15, 0.25), Transform3D(Basis.looking_at(dir, Vector3.UP), b + Vector3.UP * 0.05),
+		_glow(Color(1.0, 0.62, 0.12), 3.0))
+	for s in [-1.0, 1.0]:
+		_box_mesh(Vector3(0.2, 1.4, 0.2), Transform3D(Basis(), b + side * s * (KICK_W * 0.5) + Vector3.UP * 0.7),
+			_glow(Color(1.0, 0.2, 0.1), 2.5))
+
+
+## Amber glow strips just above the parapet round a battle roof, so the drop
+## reads at speed (the building itself is untouched).
+func _roof_edge_lights(xf: Transform3D, half: Vector2) -> void:
+	var glow := _glow(Color(1.0, 0.62, 0.12), 2.0)
+	for e in 4:
+		var horiz := e < 2
+		var s := 1.0 if e % 2 == 0 else -1.0
+		var size := Vector3(half.x * 2.0, 0.08, 0.12) if horiz else Vector3(0.12, 0.08, half.y * 2.0)
+		var lp := Vector3(0.0, LIP + 0.05, s * (half.y + 0.02)) if horiz else Vector3(s * (half.x + 0.02), LIP + 0.05, 0.0)
+		_box_mesh(size, Transform3D(xf.basis, xf * lp), glow)
+
+
+func _box_mesh(size: Vector3, xf: Transform3D, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.transform = xf
+	add_child(mi)
 
 
 ## A candidate deck moved to height y.
@@ -362,14 +841,14 @@ func _bridge_ends(A: Array, B: Array) -> Array:
 	return [pa, pb]
 
 
-func _edge_point(xf: Transform3D, half: Vector2, toward: Vector3) -> Vector3:
+func _edge_point(xf: Transform3D, half: Vector2, toward: Vector3, inset := 1.5) -> Vector3:
 	var d := toward - xf.origin
 	d.y = 0.0
 	d = d.normalized()
 	var ld := xf.basis.inverse() * d
 	var tx := half.x / maxf(absf(ld.x), 0.001)
 	var tz := half.y / maxf(absf(ld.z), 0.001)
-	var t := minf(tx, tz) - 1.5
+	var t := minf(tx, tz) - inset
 	return xf.origin + d * t
 
 
@@ -520,7 +999,7 @@ func _bridge_geometry(pa: Vector3, pb: Vector3) -> void:
 
 # ------------------------------------------------------------------ materials
 
-func _deck_mat(shape: int, half: Vector2) -> Material:
+func _deck_mat(shape: int, half: Vector2, base := Color(0.13, 0.135, 0.15)) -> Material:
 	if _shader == null:
 		_shader = Shader.new()
 		_shader.code = DECK_SHADER
@@ -528,6 +1007,7 @@ func _deck_mat(shape: int, half: Vector2) -> Material:
 	m.shader = _shader
 	m.set_shader_parameter("shape", shape)
 	m.set_shader_parameter("half_size", half)
+	m.set_shader_parameter("base", Vector3(base.r, base.g, base.b))
 	return m
 
 
@@ -557,12 +1037,12 @@ shader_type spatial;
 render_mode cull_back;
 uniform int shape = 0;
 uniform vec2 half_size = vec2(30.0);
+uniform vec3 base = vec3(0.13, 0.135, 0.15);
 varying vec3 lp;
 varying vec3 ln;
 void vertex() { lp = VERTEX; ln = NORMAL; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
-	vec3 base = vec3(0.13, 0.135, 0.15);
 	if (ln.y < 0.5) {
 		ALBEDO = vec3(0.17, 0.18, 0.2);
 		METALLIC = 0.5;
@@ -587,15 +1067,20 @@ void fragment() {
 		// Panel seams.
 		vec2 g = abs(fract(p / 4.0) - 0.5);
 		col *= 1.0 - 0.18 * step(0.48, max(g.x, g.y));
-		// Hazard band: amber / black chevrons along the edge.
-		if (edge < 1.6) {
+		// Hazard band: amber / black chevrons along the edge (thinner on
+		// narrow links).
+		float band = min(1.6, half_size.x * 0.22);
+		if (edge < band) {
 			float s = step(0.5, fract((along + edge) / 2.2));
 			col = mix(vec3(0.02), vec3(0.95, 0.6, 0.06), s);
-		} else if (edge < 2.0) {
+		} else if (edge < band + 0.4) {
 			col = vec3(0.85);
 		}
-		// Centre ring (disc / decks).
-		if (shape != 2) {
+		if (shape == 3) {
+			// Kicker: big chevrons pointing up the ramp.
+			float c = step(0.5, fract((p.y + abs(p.x) * 0.8) / 2.0));
+			col = mix(vec3(0.03), base, c);
+		} else if (shape != 2) {
 			float r = length(p);
 			float ring = min(half_size.x, half_size.y) * 0.32;
 			if (abs(r - ring) < 0.35) col = vec3(0.85, 0.12, 0.1);
@@ -662,36 +1147,44 @@ func deck_of(p: Vector3) -> int:
 	return best
 
 
-## First bridge to take from deck a toward deck b: [entry, exit] points, or [] if same deck / no route.
+## First link to take from deck a toward deck b: [entry, exit, style], or []
+## if same deck / no route. Jumps are one way (from the higher roof) and
+## count a little longer than a bridge (they can go wrong).
 func route(a: int, b: int) -> Array:
 	if a == b:
 		return []
-	var prev := {a: -1}
-	var q := [a]
-	while not q.is_empty():
-		var c: int = q.pop_front()
+	var dist := {a: 0.0}
+	var prev := {}
+	var open := [a]
+	while not open.is_empty():
+		open.sort_custom(func(x, y): return dist[x] < dist[y])
+		var c: int = open.pop_front()
 		if c == b:
 			break
-		for l in links:
+		for li in links.size():
+			var l: Array = links[li]
 			var di := decks.find(l[0])
 			var dj := decks.find(l[1])
-			for pair in [[di, dj], [dj, di]]:
-				if pair[0] == c and not prev.has(pair[1]):
-					prev[pair[1]] = c
-					q.append(pair[1])
+			var oneway: bool = l.size() > 6 and l[6]
+			var cost := 1.4 if (l.size() > 5 and l[5] == "jump") else 1.0
+			for pair in ([[di, dj]] if oneway else [[di, dj], [dj, di]]):
+				if pair[0] != c:
+					continue
+				var nd: float = dist[c] + cost
+				if nd < float(dist.get(pair[1], INF)):
+					dist[pair[1]] = nd
+					prev[pair[1]] = [c, li, pair[0] == di]
+					if not (pair[1] in open):
+						open.append(pair[1])
 	if not prev.has(b):
 		return []
 	var step := b
-	while prev[step] != a:
-		step = prev[step]
-	for l in links:
-		var di := decks.find(l[0])
-		var dj := decks.find(l[1])
-		if di == a and dj == step:
-			return [l[3], l[4]]
-		if dj == a and di == step:
-			return [l[4], l[3]]
-	return []
+	while (prev[step] as Array)[0] != a:
+		step = (prev[step] as Array)[0]
+	var pv: Array = prev[step]
+	var l2: Array = links[pv[1]]
+	var style: String = l2[5] if l2.size() > 5 else "bridge"
+	return [l2[3], l2[4], style] if pv[2] else [l2[4], l2[3], style]
 
 
 ## Start grid: ten slots spread over the arena, facing inward.
@@ -720,9 +1213,20 @@ func slots() -> Array:
 				var p := xf * lp
 				var ok := true
 				for bd in grid.get(Vector2i(floori(p.x / 50.0), floori(p.z / 50.0)), []):
+					if pc.has("b") and is_same(bd, pc["b"]):
+						continue   # (the roof we're standing on)
 					if layout.inside(bd, p + Vector3.UP * 0.8, 3.2):
 						ok = false
 						break
+				# Really open, flat roof there (roof huts and plant boxes belong
+				# to the building itself, so ask the physics).
+				if ok and is_inside_tree():
+					ok = _slot_open(p, xf)
+				# Clear of link ends and kickers on this roof.
+				for l in links:
+					for e: Vector3 in [l[3], l[4]]:
+						if Vector2(e.x - p.x, e.z - p.z).length() < 7.0 and absf(e.y - p.y) < 4.0:
+							ok = false
 				if ok:
 					spots.append(p)
 		spots.sort_custom(func(a, b): return a.distance_to(xf.origin) > b.distance_to(xf.origin))
@@ -859,14 +1363,27 @@ func _physics_process(dt: float) -> void:
 		if not is_instance_valid(c):
 			alive.remove_at(i)
 			continue
-		# Out: well under the lowest deck, or off every deck and bridge for
-		# a moment and below the floor (dropped onto a roof under a deck).
 		var cp := c.global_position
-		var off := piece_at(cp, 0.0, 4.0) < 0
+		var pi_on := piece_at(cp, 0.0, 4.0)
+		var off := pi_on < 0
 		var ot: float = c.get_meta("off_t", 0.0)
 		ot = ot + dt if off else 0.0
 		c.set_meta("off_t", ot)
-		if cp.y < floor_y - KO_DROP or (off and ot > 1.2 and cp.y < floor_y - 1.0):
+		if kind == Kind.ROOFTOPS:
+			# Out: off every roof and link and KO_FALL under the level it was on
+			# (or under the lowest surface close by: a jump to a lower roof is
+			# fine), or off them for KO_OFF_T s (on a ledge or a setback roof).
+			if not off:
+				c.set_meta("level", _top_y(cp))
+				c.set_meta("edge_at", cp)
+			var ref: float = c.get_meta("level", floor_y)
+			if off:
+				ref = minf(ref, _lowest_near(cp, 12.0))
+			if cp.y < floor_y - KO_DROP or (off and (cp.y < ref - KO_FALL or ot > KO_OFF_T)):
+				_knock_out(c)
+				continue
+		elif cp.y < floor_y - KO_DROP or (off and ot > 1.2 and cp.y < floor_y - 1.0):
+			# Out: well under the deck, or off it for a moment and below it.
 			_knock_out(c)
 			continue
 		var b: Bot = bots.get(c.get_instance_id())
@@ -879,6 +1396,36 @@ func _physics_process(dt: float) -> void:
 		finished.emit(alive[0] if alive.size() == 1 else null)
 
 
+## A car fits at p: flat surface right under it at the deck's height, and
+## nothing solid in a car-sized box over it.
+func _slot_open(p: Vector3, xf: Transform3D) -> bool:
+	var space := get_world_3d().direct_space_state
+	var rq := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 3.0, p - Vector3.UP * 3.0, Car.RAY_MASK)
+	var hit := space.intersect_ray(rq)
+	if hit.is_empty() or absf((hit["position"] as Vector3).y - xf.origin.y) > 0.25 or (hit["normal"] as Vector3).y < 0.97:
+		return false
+	var sq := PhysicsShapeQueryParameters3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.0, 1.6, 6.0)
+	sq.shape = box
+	sq.transform = Transform3D(xf.basis, Vector3(p.x, xf.origin.y + 1.1, p.z))
+	sq.collision_mask = 1 | (1 << 7)
+	return space.intersect_shape(sq, 1).is_empty()
+
+
+## Lowest surface top within r m (horizontally) of p, or INF.
+func _lowest_near(p: Vector3, r: float) -> float:
+	var lo := INF
+	for pc in pieces:
+		var xf: Transform3D = pc["xf"]
+		var half: Vector2 = pc["half"]
+		var lp := xf.affine_inverse() * Vector3(p.x, xf.origin.y, p.z)
+		if absf(lp.x) < half.x + r and absf(lp.z) < half.y + r:
+			var q := xf * Vector3(clampf(lp.x, -half.x, half.x), 0.0, clampf(lp.z, -half.y, half.y))
+			lo = minf(lo, q.y)
+	return lo
+
+
 func _knock_out(c: Car) -> void:
 	alive.erase(c)
 	out_order.append(c)
@@ -887,6 +1434,11 @@ func _knock_out(c: Car) -> void:
 			and c.last_hit_by in cars and time - float(c.get_meta("hit_t", -99.0)) < CREDIT_WINDOW:
 		by = c.last_hit_by
 		kos[by.get_instance_id()] = int(kos.get(by.get_instance_id(), 0)) + 1
+	if OS.get_environment("ARENA_DEBUG") != "":
+		var e: Vector3 = c.get_meta("edge_at", c.global_position)
+		var pi := piece_at(e, 0.0, 4.0)
+		print("KO %s t=%.1f by %s at %s piece %d %s" % [c.name, time, by.name if by else "-", e.snapped(Vector3.ONE),
+			pi, pieces[pi].get("style", pieces[pi]["type"]) if pi >= 0 else "?"])
 	bots.erase(c.get_instance_id())
 	if c != player:
 		c.throttle = 0.0
@@ -949,6 +1501,11 @@ func _process(_dt: float) -> void:
 			cars.erase(c)
 			c.queue_free()
 			_fallen.remove_at(i)
+		elif f.size() < 3 and f[1] > 0.6 and kind == Kind.ROOFTOPS and c.linear_velocity.y > -3.0 \
+				and c.global_position.y < floor_y - KO_FALL - 4.0:
+			# It hit something far below (the street, a lower roof): a crash.
+			f.append(true)
+			crashed_down.emit(c, c.global_position)
 
 
 ## A rival's brain: who to hit, how to get there, and not driving off.
@@ -965,6 +1522,8 @@ class Bot:
 	var _wp_exit := Vector3.INF     # mid-bridge: where we're heading
 	var _charge := 0.0              # committed to a hit (edge sense off)
 	var _room := 45.0  # deck left ahead (m)
+	var _jump_t := 0.0              # committed to a jump: flat out, no edge sense
+	var _jump_to := Vector3.INF
 	var _room_t := 0.0
 
 	func _init(c: Car, a: Arena) -> void:
@@ -998,9 +1557,37 @@ class Bot:
 		var aim := tp
 		var vel := target.linear_velocity
 		# Rooftops: get onto the target's deck by the bridges.
+		if arena.kind == Kind.ROOFTOPS and _jump_t > 0.0:
+			# Mid-jump: straight at the landing, foot down, until we're down on it.
+			_jump_t -= dt
+			var landed := _jump_t < 2.2 and car.wheels_on_ground > 0 and arena.piece_at(pos) >= 0 \
+				and Vector2(pos.x - _jump_to.x, pos.z - _jump_to.z).length() < 14.0
+			if landed or _jump_t <= 0.0:
+				_jump_t = 0.0
+			else:
+				drv.direct_target = _jump_to
+				drv.direct_vel = Vector3.ZERO
+				drv.speed_cap = 60.0
+				drv.update(dt, space)
+				car.throttle = 1.0
+				car.brake = 0.0
+				car.handbrake = false
+				return
 		if arena.kind == Kind.ROOFTOPS:
 			var here := arena.piece_at(pos)
 			var on_bridge: bool = here >= 0 and arena.pieces[here]["type"] == "bridge"
+			if on_bridge and _wp_exit == Vector3.INF and arena.pieces[here].get("style", "") == "gap":
+				# On a jump road with no plan (knocked onto it): go for the
+				# end we're facing, flat out over the gap.
+				var lk: Array = arena.links[int(arena.pieces[here]["link"])]
+				var f3 := -car.global_basis.z
+				var to_b := (lk[4] as Vector3) - pos
+				var end: Vector3 = lk[4] if f3.dot(to_b) > 0.0 else lk[3]
+				var ax := end - pos
+				ax.y = 0.0
+				_jump_t = 2.5 + ax.length() / 12.0
+				_jump_to = end + ax.normalized() * 6.0
+				_wp_exit = _jump_to
 			var my_deck := arena.deck_of(pos)
 			var their := arena.deck_of(tp)
 			if on_bridge and _wp_exit != Vector3.INF:
@@ -1011,18 +1598,30 @@ class Bot:
 				if not r.is_empty():
 					var entry: Vector3 = r[0]
 					var exit: Vector3 = r[1]
+					var style: String = r[2] if r.size() > 2 else "bridge"
 					var axis := (exit - entry)
 					axis.y = 0.0
 					axis = axis.normalized()
-					# Line up on the bridge before committing to it.
-					var approach := entry - axis * 6.0
-					var lat := (pos - entry) - axis * (pos - entry).dot(axis)
+					# Line up on the link before committing to it (a long, straight
+					# run-up for a jump; tight for a narrow crossing).
+					var jumpy := style == "jump" or style == "gap"
+					var back := 4.0 if style == "jump" else (14.0 if style == "gap" else (10.0 if style == "narrow" else 6.0))
+					var tol := 1.3 if jumpy else (0.9 if style == "narrow" else 2.5)
+					var approach := entry - axis * back
+					var along := (pos - entry).dot(axis)
+					var lat := (pos - entry) - axis * along
 					lat.y = 0.0
-					if lat.length() < 2.5 and (pos - entry).dot(axis) > -9.0:
+					var fwd2 := -car.global_basis.z
+					fwd2.y = 0.0
+					var facing := fwd2.normalized().dot(axis) > (0.95 if jumpy else 0.7)
+					if lat.length() < tol and along > -(back + 3.0) and facing:
 						aim = exit + axis * 4.0
 						_wp_exit = exit + axis * 4.0
+						if jumpy:
+							_jump_t = 3.2 if style == "jump" else 2.5 + Vector2(exit.x - entry.x, exit.z - entry.z).length() / 12.0
+							_jump_to = exit + axis * 6.0
 					else:
-						aim = approach
+						aim = approach if along < -back * 0.5 or lat.length() > tol * 2.0 else entry
 						_wp_exit = Vector3.INF
 					vel = Vector3.ZERO
 			else:

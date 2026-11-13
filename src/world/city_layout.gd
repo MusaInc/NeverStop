@@ -81,6 +81,10 @@ var sea: Array = []            # Rect2 (also in `water`); the island is cut out 
 var reserved: Array = []       # Rect2 footprints owned by landmarks and set pieces (world, axis-aligned)
 var structures: Array = []     # Dictionary specs for BuildingMesher.add_structure (cranes, bridge)
 var bridge_ramp := PackedVector3Array()  # island approach, deck centreline
+## The Diagonal Expressway (island only; null on the mainland or if it
+## couldn't be laid out) and the street-layer collision of its deck.
+var expressway: Expressway
+var street_obbs: Array = []    # [Transform3D, size]: oriented boxes that collide as street
 var public_furniture: Array = []  # authored public spaces, merged with street furniture
 var public_gardens: Array[Vector3] = []
 var anchor_lines: Array = []   # [from:Vector3, to:Vector3] web anchors on thin structures (jibs, cables)
@@ -128,6 +132,10 @@ func generate(p_seed := 1207) -> CityLayout:
 	terrain.build(island.grow(80.0))
 	_lift_on_slope(ls)
 	_bridge()
+	var ex := Expressway.new(self)
+	if ex.plan():
+		expressway = ex
+		ex.build()
 	_blocks()
 	_construction()
 	# Westbank first: the City Loop crosses the strait and turns round on its

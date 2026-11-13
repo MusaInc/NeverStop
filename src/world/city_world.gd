@@ -693,6 +693,22 @@ func _build_collision() -> void:
 		cs2.shape = cv
 		kit.add_child(cs2)
 	add_child(kit)
+	if not layout.street_obbs.is_empty():
+		# The expressway's deck: drives like the street (wheels, camera floor),
+		# isn't a wall to the AI's whiskers.
+		var deck := StaticBody3D.new()
+		deck.name = "ExpresswayDeck"
+		deck.collision_layer = 1 << 3
+		deck.collision_mask = 0
+		deck.add_to_group("street")
+		for ob in layout.street_obbs:
+			var csd := CollisionShape3D.new()
+			var bsd := BoxShape3D.new()
+			bsd.size = ob[1]
+			csd.shape = bsd
+			csd.transform = ob[0]
+			deck.add_child(csd)
+		add_child(deck)
 	if not layout.kit_obbs_solid.is_empty():
 		var solid := StaticBody3D.new()
 		solid.name = "SetPieceSolid"

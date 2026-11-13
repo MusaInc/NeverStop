@@ -469,6 +469,7 @@ func _battle_arena() -> Arena:
 		var a := Arena.new().build(layout, Arena.Kind.SKY if mode == "sky" else Arena.Kind.ROOFTOPS)
 		a.knocked_out.connect(_on_knocked_out)
 		a.finished.connect(_on_battle_won)
+		a.crashed_down.connect(_on_crashed_down)
 		_arenas[mode] = a
 		print("Arena %s: %d ms" % [mode, Time.get_ticks_msec() - t0])
 	var ar: Arena = _arenas[mode]
@@ -481,6 +482,7 @@ func _battle_arena() -> Arena:
 ## few of them with Workshop battle kit bolted on.
 func _begin_battle() -> void:
 	if arena:
+		arena.clear_roofs(world, false)
 		arena.cleanup()
 	arena = _battle_arena()
 	for a: Arena in _arenas.values():
@@ -521,12 +523,14 @@ func _begin_battle() -> void:
 		input.enabled = false
 	arena.begin(player, rivals, int(args["seed"]) if args.has("seed") else -1, auto)
 	world.build_all_near(arena.centre, 420.0)
+	arena.clear_roofs(world, true)
 	camera.set_target(player, true)
 	hud.arena = arena
 
 
 func _end_battle() -> void:
 	if arena:
+		arena.clear_roofs(world, false)
 		arena.cleanup()
 		if arena.get_parent():
 			remove_child(arena)
@@ -539,6 +543,12 @@ func _end_battle() -> void:
 func _on_knocked_out(c: Car, by: Car, place: int) -> void:
 	if state != State.PLAYING:
 		return
+	# Sparks where it went over the edge, and a warning siren-ish thud.
+	if fx and is_instance_valid(c):
+		var edge: Vector3 = c.get_meta("edge_at", c.global_position)
+		fx.impact(edge, Vector3.UP, 14.0, c.spec.get("paint", Color(0.8, 0.8, 0.8)))
+	if audio and is_instance_valid(c):
+		audio.play_at("crash_heavy_%d" % (randi() % 3), c.global_position, -6.0)
 	if c == player:
 		_battle_over(false, place)
 		return
@@ -553,6 +563,16 @@ func _on_knocked_out(c: Car, by: Car, place: int) -> void:
 			audio.event_chime(1000)
 	else:
 		hud.notice("%s IS OUT  ·  %d LEFT" % [who, arena.alive.size()])
+
+
+## A knocked-out car hits the street (or a lower roof) far below.
+func _on_crashed_down(c: Car, at: Vector3) -> void:
+	if fx:
+		fx.explosion(at)
+	if audio:
+		audio.play_at("crash_heavy_%d" % (randi() % 3), at, 0.0)
+	if is_instance_valid(c) and c.global_position.distance_to(camera.global_position) < 120.0:
+		camera.shake(0.2)
 
 
 func _on_battle_won(winner: Car) -> void:
