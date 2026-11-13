@@ -1,8 +1,9 @@
 class_name Destructibles
 extends Node3D
 ## Street furniture cars knock flying: streetlights, traffic lights, sign
-## posts, bins, benches, hydrants, bollards. (Trees, bus shelters and
-## planters are solid: you crash into those.)
+## posts, bins, benches, hydrants, bollards and trees (a tree costs the most
+## speed and topples over the bonnet). Bus shelters and planters are solid:
+## you crash into those.
 ##  * A spatial hash of every breakable item, built from the same lists the
 ##    city draws (CityWorld.chunk_props / chunk_furniture).
 ##  * Every physics frame, each fast car near the camera checks the items in
@@ -13,10 +14,11 @@ extends Node3D
 
 signal broke(kind: String, at: Vector3, by: Car)
 
-const BREAKABLE := ["streetlight", "traffic_light", "sign_post", "bench", "bin", "hydrant", "bollard"]
+const BREAKABLE := ["streetlight", "traffic_light", "sign_post", "bench", "bin", "hydrant", "bollard", "tree", "tree_tall"]
+const TALL := ["streetlight", "traffic_light", "sign_post", "tree", "tree_tall"]   # topple over the car's nose
 const CELL := 8.0
 const SLOW := {"streetlight": 0.92, "traffic_light": 0.9, "sign_post": 0.97, "bench": 0.95, "bin": 0.98,
-	"hydrant": 0.95, "bollard": 0.93}
+	"hydrant": 0.95, "bollard": 0.93, "tree": 0.86, "tree_tall": 0.88}
 
 var world: CityWorld
 var cars: Array = []
@@ -64,7 +66,9 @@ func _physics_process(dt: float) -> void:
 		if not is_instance_valid(o):
 			continue
 		var c := o as Car
-		if c.freeze or not c.visible or c.speed < 4.0:
+		# Low threshold: nothing breakable is solid, so a car creeping into a
+		# tree must still knock it (or it would drive through a standing one).
+		if c.freeze or not c.visible or c.speed < 1.0:
 			continue
 		_check(c)
 	for k in _dirty.keys():
@@ -104,7 +108,10 @@ func _check(car: Car) -> void:
 				var it: Array = cell[i]
 				var xf: Transform3D = it[1]
 				var l := inv * xf.origin
-				if absf(l.x) < hw and absf(l.z) < hl and l.y > -1.5 and l.y < 2.0:
+				# Height in world terms: a car pitched up a kerb would otherwise
+				# lift the item's base out of its own (tilted) frame and pass through.
+				var dy := xf.origin.y - p.y
+				if absf(l.x) < hw and absf(l.z) < hl and dy > -1.5 and dy < 2.0:
 					cell.remove_at(i)
 					_break(it, car)
 
@@ -149,26 +156,35 @@ func _throw(kind: String, xf: Transform3D, car: Car, w: CityWorld) -> void:
 	var b := RigidBody3D.new()
 	b.collision_layer = 1 << 5
 	b.collision_mask = 1 | (1 << 3)
-	var tall := kind in ["streetlight", "traffic_light", "sign_post"]
-	b.mass = 60.0 if tall else 25.0
+	var tall := kind in TALL
+	var tree := kind.begins_with("tree")
+	b.mass = 140.0 if tree else (60.0 if tall else 25.0)
+	# Trees are placed scaled; a physics body must not be, so the scale goes
+	# on the mesh and the shape instead.
+	var sc := xf.basis.get_scale()
 	var cs := CollisionShape3D.new()
 	var bs := BoxShape3D.new()
 	var aabb := mesh.get_aabb() if mesh else AABB(Vector3(-0.3, 0, -0.3), Vector3(0.6, 1.0, 0.6))
-	bs.size = aabb.size.max(Vector3.ONE * 0.1)
+	bs.size = (aabb.size * sc).max(Vector3.ONE * 0.1)
 	cs.shape = bs
-	cs.position = aabb.get_center()
+	cs.position = aabb.get_center() * sc
 	b.add_child(cs)
 	if mesh:
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
+		mi.scale = sc
 		if kind in ["bench", "bin", "hydrant", "bollard"]:
 			mi.material_override = w.furniture_mat
 		b.add_child(mi)
 	add_child(b)
-	b.global_transform = xf
+	b.global_transform = Transform3D(xf.basis.orthonormalized(), xf.origin)
 	var v := car.linear_velocity
-	b.linear_velocity = v * _rng.randf_range(0.6, 0.95) + Vector3.UP * _rng.randf_range(2.0, 5.0)
+	if tree:
+		# Heavy: carried a little way, barely lifted, falls over the bonnet.
+		b.linear_velocity = v * _rng.randf_range(0.35, 0.55) + Vector3.UP * _rng.randf_range(0.5, 1.5)
+	else:
+		b.linear_velocity = v * _rng.randf_range(0.6, 0.95) + Vector3.UP * _rng.randf_range(2.0, 5.0)
 	# Tall posts topple over the car's nose.
 	var axis := (-car.global_basis.x) if tall else Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)).normalized()
-	b.angular_velocity = axis * v.length() * (0.25 if tall else 0.6)
+	b.angular_velocity = axis * maxf(v.length(), 6.0 if tree else 0.0) * (0.18 if tree else (0.25 if tall else 0.6))
 	_pieces.append([b, 0.0])

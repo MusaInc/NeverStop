@@ -28,6 +28,18 @@ var _back_to := "title"
 var _toast: Label
 var _toast_t := 0.0
 var _back_to_about := "title"
+var _mode_sel := "chase"         # title: the mode PLAY starts
+var _mode_cards: Array = []
+var _play_sub: Label
+var _daily_shown := false
+var _curtain: ColorRect          # fade-through-black between menu and chase
+var _curtain_busy := false
+var _intro_hold_until := 0     # msec: title blocks wait for the loading screen's fade
+
+
+## Start-up: hold the title's entrance until the loading screen has faded.
+func hold_intro(sec: float) -> void:
+	_intro_hold_until = Time.get_ticks_msec() + int(sec * 1000.0)
 
 
 func setup(p_game: Node) -> void:
@@ -53,6 +65,11 @@ func setup(p_game: Node) -> void:
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.modulate.a = 0.0
 	add_child(_toast)
+	_curtain = ColorRect.new()
+	_curtain.color = Color(0.01, 0.012, 0.018, 0.0)
+	_curtain.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	_curtain.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_curtain)
 	_build_title()
 	var start: String = game.args.get("menu", "")
 	if start != "" and screens.has(start):
@@ -146,6 +163,10 @@ func show_screen(name: String) -> void:
 
 
 func _focus_first(c: Control) -> void:
+	var main := c.find_child("PLAY", true, false)
+	if main is Button and (main as Button).is_visible_in_tree():
+		(main as Button).grab_focus()
+		return
 	for b in c.find_children("*", "Button", true, false):
 		if (b as Button).visible and not (b as Button).disabled:
 			(b as Button).grab_focus()
@@ -256,13 +277,15 @@ func _label(text: String, size := 18, col := UiStyle.WHITE, weight := "bold") ->
 	return l
 
 
+## Margins are kept clear of the notch / home indicator (see _insets).
 func _margin(c: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	var m := MarginContainer.new()
 	m.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
-	m.add_theme_constant_override("margin_left", l)
-	m.add_theme_constant_override("margin_top", t)
-	m.add_theme_constant_override("margin_right", r)
-	m.add_theme_constant_override("margin_bottom", b)
+	var ins := _insets(l, t, r, b)
+	m.add_theme_constant_override("margin_left", int(ins.x))
+	m.add_theme_constant_override("margin_top", int(ins.y))
+	m.add_theme_constant_override("margin_right", int(ins.z))
+	m.add_theme_constant_override("margin_bottom", int(ins.w))
 	m.mouse_filter = MOUSE_FILTER_IGNORE
 	c.add_child(m)
 	return m
@@ -292,66 +315,265 @@ func _shade(c: Control, from_left := true, a := 0.75) -> void:
 
 # ---------------------------------------------------------------- title
 func _build_title() -> void:
+	# Over the live attract chase (the camera frames the car on the right third):
+	#   top bar   rank + XP (left) · cash + settings (right)
+	#   left      studio line, logo, tagline; three mode cards; PLAY + what it starts
+	#   bottom    Garage · Records · How to play
 	var c: Control = screens["title"]
-	_shade(c, true, 0.82)
-	var m := _margin(c, 64, 48, 64, 40)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
-	m.add_child(v)
-	var studio := _label("MUSA STUDIOS PRESENTS", 14, UiStyle.DIM, "bold")
-	v.add_child(studio)
-	var logo := TitleLogo.new()
-	logo.custom_minimum_size = Vector2(520, 130)
-	v.add_child(logo)
-	var tag := _label("The police will catch you. Make them work for it.", 18, UiStyle.DIM, "semibold")
-	v.add_child(tag)
-	var sp := Control.new()
-	sp.custom_minimum_size.y = 18
-	v.add_child(sp)
-	var play := _btn("PLAY", func(): game.start_run(), true, 28)
-	play.custom_minimum_size = Vector2(440, 64)
-	play.size_flags_horizontal = SIZE_SHRINK_BEGIN
-	v.add_child(play)
-	# Battle arenas: ten cars, one surface high over the city, last car on it wins.
-	var modes := HBoxContainer.new()
-	modes.add_theme_constant_override("separation", 10)
-	modes.size_flags_horizontal = SIZE_SHRINK_BEGIN
-	v.add_child(modes)
-	for pair in [["SKY ARENA", "sky"], ["ROOFTOP RUMBLE", "rooftops"]]:
-		var mid: String = pair[1]
-		var mb := _btn(pair[0], func(): game.start_mode(mid), false, 18)
-		mb.custom_minimum_size = Vector2(215, 50)
-		modes.add_child(mb)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	row.size_flags_horizontal = SIZE_SHRINK_BEGIN
-	v.add_child(row)
-	for pair in [["Garage", "garage"], ["Records", "records"], ["How to play", "help"], ["Settings", "settings"]]:
-		var target: String = pair[1]
-		var b := _btn(pair[0], func(): _back_to = "title"; show_screen(target), false, 18)
-		b.custom_minimum_size = Vector2(140, 48)
-		row.add_child(b)
+	_shade(c, true, 0.86)
+	_shade_edge(c, true, 0.55)
+	_shade_edge(c, false, 0.6)
+	var m := _margin(c, 48, 26, 48, 24)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.mouse_filter = MOUSE_FILTER_IGNORE
+	m.add_child(col)
+	var blocks: Array[Control] = []
+
+	# --- top bar
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 12)
+	col.add_child(top)
+	blocks.append(top)
 	var xp := int(SaveData.data.get("xp", 0))
-	var rank_row := HBoxContainer.new()
-	rank_row.add_theme_constant_override("separation", 12)
-	v.add_child(rank_row)
-	rank_row.add_child(_label("RANK %d  ·  %s" % [Progression.rank_index(xp) + 1, Progression.rank_name(xp).to_upper()], 16, UiStyle.WHITE, "black"))
-	rank_row.add_child(RankBar.make(Progression.rank_progress(xp)))
-	var info := HBoxContainer.new()
-	info.add_theme_constant_override("separation", 18)
-	v.add_child(info)
-	if game.daily.get("claimed", false):
-		var chip := PanelContainer.new()
-		chip.add_theme_stylebox_override("panel", _chip_style(Color(UiStyle.AMBER, 0.16), 14))
-		chip.size_flags_horizontal = SIZE_SHRINK_BEGIN
-		chip.add_child(_label("Daily bonus · day %d streak · +$%s" % [int(game.daily["day"]), UiStyle.thousands(int(game.daily["reward"]))], 14, UiStyle.AMBER, "black"))
-		v.add_child(chip)
-	info.add_child(_cash_label(20))
-	var best := int(SaveData.data["best_score"])
-	if best > 0:
-		info.add_child(_label("BEST  %s   ·   %s   ·   HEAT %d" % [UiStyle.thousands(best), UiStyle.time_str(float(SaveData.data["best_time"])), int(SaveData.data["best_heat"])], 16, UiStyle.DIM, "bold"))
-	var car_l := _label("CAR  " + str(CarCatalog.CARS[game.car_id]["name"]).to_upper() + "     START  " + str(Progression.STARTS.get(SaveData.data["start"], Progression.STARTS["downtown"])["name"]).to_upper(), 14, UiStyle.DIM, "bold")
-	v.add_child(car_l)
+	var ri := Progression.rank_index(xp)
+	var prof := PanelContainer.new()
+	prof.add_theme_stylebox_override("panel", _chip_style(Color(0.05, 0.06, 0.08, 0.6), 26))
+	top.add_child(prof)
+	var ph := HBoxContainer.new()
+	ph.add_theme_constant_override("separation", 12)
+	prof.add_child(ph)
+	var badge := RankBadge.new()
+	badge.rank = ri + 1
+	ph.add_child(badge)
+	var pv := VBoxContainer.new()
+	pv.add_theme_constant_override("separation", 2)
+	pv.alignment = BoxContainer.ALIGNMENT_CENTER
+	ph.add_child(pv)
+	pv.add_child(_label(Progression.rank_name(xp).to_upper(), 15, UiStyle.WHITE, "black"))
+	var bar := RankBar.make(Progression.rank_progress(xp))
+	bar.custom_minimum_size = Vector2(150, 8)
+	pv.add_child(bar)
+	if ri < Progression.RANKS.size() - 1:
+		var to_next := int(Progression.RANKS[ri + 1][1]) - xp
+		pv.add_child(_label("%s XP to %s" % [UiStyle.thousands(to_next), Progression.RANKS[ri + 1][0]], 12, UiStyle.DIM, "semibold"))
+	var tsp := Control.new()
+	tsp.size_flags_horizontal = SIZE_EXPAND_FILL
+	tsp.mouse_filter = MOUSE_FILTER_IGNORE
+	top.add_child(tsp)
+	var cash := PanelContainer.new()
+	cash.add_theme_stylebox_override("panel", _chip_style(Color(0.05, 0.06, 0.08, 0.6), 26))
+	cash.size_flags_vertical = SIZE_SHRINK_CENTER
+	top.add_child(cash)
+	cash.add_child(_cash_label(22))
+	var gear := GlyphButton.make(self, "settings", "", func(): _back_to = "title"; show_screen("settings"))
+	gear.name = "Settings"
+	gear.tooltip_text = "Settings"
+	gear.custom_minimum_size = Vector2(52, 52)
+	gear.size_flags_vertical = SIZE_SHRINK_CENTER
+	top.add_child(gear)
+
+	var sp1 := Control.new()
+	sp1.size_flags_vertical = SIZE_EXPAND_FILL
+	sp1.mouse_filter = MOUSE_FILTER_IGNORE
+	col.add_child(sp1)
+
+	# --- hero: logo, tagline
+	var hero := VBoxContainer.new()
+	hero.add_theme_constant_override("separation", 4)
+	col.add_child(hero)
+	blocks.append(hero)
+	hero.add_child(_label("MUSA STUDIOS PRESENTS", 13, UiStyle.DIM, "bold"))
+	var logo := TitleLogo.new()
+	logo.custom_minimum_size = Vector2(520, 122)
+	hero.add_child(logo)
+	hero.add_child(_label("The police will catch you. Make them work for it.", 17, Color(UiStyle.WHITE, 0.72), "semibold"))
+	var g1 := Control.new()
+	g1.custom_minimum_size.y = 22
+	col.add_child(g1)
+
+	# --- mode cards
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 10)
+	col.add_child(cards)
+	blocks.append(cards)
+	_mode_cards.clear()
+	for mid in ["chase", "sky", "rooftops"]:
+		var card := ModeCard.make(self, mid, _mode_stat(mid))
+		card.name = "mode_" + mid
+		card.selected = mid == _mode_sel
+		card.pressed.connect(func():
+			if game.has_method("ui_click"):
+				game.ui_click()
+			_select_mode(mid))
+		cards.add_child(card)
+		_mode_cards.append(card)
+	var g2 := Control.new()
+	g2.custom_minimum_size.y = 14
+	col.add_child(g2)
+
+	# --- PLAY + what it starts
+	var go := VBoxContainer.new()
+	go.add_theme_constant_override("separation", 6)
+	col.add_child(go)
+	blocks.append(go)
+	var play := _btn("PLAY", func(): _transition(func(): game.start_mode(_mode_sel)), true, 30)
+	play.name = "PLAY"
+	play.custom_minimum_size = Vector2(560, 66)
+	play.size_flags_horizontal = SIZE_SHRINK_BEGIN
+	go.add_child(play)
+	_play_sub = _label("", 14, UiStyle.DIM, "bold")
+	go.add_child(_play_sub)
+	_update_play_sub()
+
+	var sp2 := Control.new()
+	sp2.size_flags_vertical = SIZE_EXPAND_FILL
+	sp2.mouse_filter = MOUSE_FILTER_IGNORE
+	col.add_child(sp2)
+
+	# --- dock
+	var dock := HBoxContainer.new()
+	dock.add_theme_constant_override("separation", 10)
+	col.add_child(dock)
+	blocks.append(dock)
+	for d in [["Garage", "garage", "garage"], ["Records", "records", "records"], ["How to play", "help", "help"]]:
+		var target: String = d[1]
+		var b := GlyphButton.make(self, d[2], d[0], func(): _back_to = "title"; show_screen(target))
+		b.name = d[0]
+		dock.add_child(b)
+
+	# Daily streak bonus: a banner once per launch, not a permanent chip.
+	if game.daily.get("claimed", false) and not _daily_shown:
+		_daily_shown = true
+		var dl := "Daily bonus  ·  day %d streak  ·  +$%s" % [int(game.daily["day"]), UiStyle.thousands(int(game.daily["reward"]))]
+		_banner.call_deferred(c, dl)
+
+	_intro(blocks)
+
+
+## Safe-area-aware margins (left, top, right, bottom) in canvas units: at least
+## the given ones, and clear of a notch / home indicator by a comfortable gap.
+func _insets(l: float, t: float, r: float, b: float) -> Vector4:
+	var out := Vector4(l, t, r, b)
+	if OS.has_feature("mobile"):
+		var vp := get_viewport_rect().size
+		var sa := DisplayServer.get_display_safe_area()
+		var ss := DisplayServer.screen_get_size()
+		if ss.x > 0 and ss.y > 0 and sa.size.x > 0:
+			var k := vp / Vector2(ss)
+			var p := Vector2(sa.position) * k
+			var e := (Vector2(ss) - Vector2(sa.end)) * k
+			out = Vector4(maxf(l, p.x + 20.0), maxf(t, p.y + 10.0), maxf(r, e.x + 20.0), maxf(b, e.y + 8.0))
+	return out
+
+
+## A soft dark band along the top (top = true) or bottom edge.
+func _shade_edge(c: Control, top: bool, a: float) -> void:
+	var g := TextureRect.new()
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.02, 0.025, 0.035, a))
+	grad.set_color(1, Color(0.02, 0.025, 0.035, 0.0))
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill_from = Vector2(0, 0) if top else Vector2(0, 1)
+	gt.fill_to = Vector2(0, 0.22) if top else Vector2(0, 0.7)
+	g.texture = gt
+	g.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	g.stretch_mode = TextureRect.STRETCH_SCALE
+	g.mouse_filter = MOUSE_FILTER_IGNORE
+	c.add_child(g)
+
+
+func _mode_stat(mid: String) -> String:
+	var d: Dictionary = SaveData.data
+	if mid == "chase":
+		var best := int(d.get("best_score", 0))
+		return "Beat %s" % UiStyle.thousands(best) if best > 0 else "Survive the heat"
+	var r: Dictionary = d.get("battles", {}).get(mid, {})
+	if r.is_empty() or int(r.get("played", 0)) == 0:
+		return "Last car standing"
+	return "%d won of %d" % [int(r["wins"]), int(r["played"])]
+
+
+func _select_mode(mid: String) -> void:
+	_mode_sel = mid
+	for card in _mode_cards:
+		if is_instance_valid(card):
+			card.selected = card.mode == mid
+			card.queue_redraw()
+	_update_play_sub()
+	Settings.haptic(15, 0.3)
+
+
+func _update_play_sub() -> void:
+	if _play_sub == null or not is_instance_valid(_play_sub):
+		return
+	var car := str(CarCatalog.CARS[game.car_id]["name"])
+	var bits := [str(game.MODE_NAMES[_mode_sel]), car]
+	if _mode_sel == "chase":
+		bits.append(str(Progression.STARTS.get(SaveData.data["start"], Progression.STARTS["downtown"])["name"]))
+	else:
+		bits.append("10 cars, no police")
+	_play_sub.text = "   " + "  ·  ".join(bits).to_upper()
+
+
+## Fade to black, run `cb`, fade back in (cuts hide the camera's jump to the
+## start spot). Immediate headless (tests) and with Reduce motion.
+func _transition(cb: Callable) -> void:
+	if DisplayServer.get_name() == "headless" or Settings.reduce_motion or _curtain == null:
+		cb.call()
+		return
+	if _curtain_busy:
+		return
+	_curtain_busy = true
+	_curtain.mouse_filter = MOUSE_FILTER_STOP
+	var tw := create_tween()
+	tw.tween_property(_curtain, "color:a", 1.0, 0.16)
+	tw.tween_callback(cb)
+	tw.tween_interval(0.06)
+	tw.tween_property(_curtain, "color:a", 0.0, 0.32)
+	tw.tween_callback(func():
+		_curtain_busy = false
+		_curtain.mouse_filter = MOUSE_FILTER_IGNORE)
+
+
+## Staggered fade-up of the title's blocks.
+func _intro(blocks: Array[Control]) -> void:
+	if Settings.reduce_motion or DisplayServer.get_name() == "headless":
+		return
+	var hold := maxf(0.0, (_intro_hold_until - Time.get_ticks_msec()) / 1000.0)
+	for i in blocks.size():
+		var b := blocks[i]
+		b.modulate.a = 0.0
+		var tw := b.create_tween()
+		tw.tween_interval(hold + 0.05 + i * 0.06)
+		tw.tween_property(b, "modulate:a", 1.0, 0.32).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _banner(c: Control, text: String) -> void:
+	if not is_instance_valid(c):
+		return
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", _chip_style(Color(UiStyle.AMBER, 0.95), 22))
+	var l := _label(text, 16, UiStyle.INK, "black")
+	p.add_child(l)
+	p.mouse_filter = MOUSE_FILTER_IGNORE
+	c.add_child(p)
+	await get_tree().process_frame
+	if not is_instance_valid(p):
+		return
+	var vp := get_viewport_rect().size
+	p.position = Vector2((vp.x - p.size.x) * 0.5, -p.size.y - 10.0)
+	var y := _insets(48, 26, 48, 24).y + 4.0
+	var tw := p.create_tween()
+	tw.tween_interval(0.7)
+	tw.tween_property(p, "position:y", y, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(3.6)
+	tw.tween_property(p, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(p.queue_free)
+	if game.audio:
+		game.audio.event_chime(int(game.daily.get("reward", 500)))
+	Settings.haptic(30, 0.5)
 
 
 class RankBar:
@@ -361,11 +583,184 @@ class RankBar:
 		var b := RankBar.new()
 		b.k = p
 		b.custom_minimum_size = Vector2(200, 20)
+		b.mouse_filter = MOUSE_FILTER_IGNORE
 		return b
 	func _draw() -> void:
 		var y := size.y * 0.5
-		draw_rect(Rect2(0, y - 3, size.x, 6), Color(1, 1, 1, 0.15))
-		draw_rect(Rect2(0, y - 3, size.x * k, 6), UiStyle.AMBER)
+		var h := minf(6.0, size.y)
+		draw_rect(Rect2(0, y - h * 0.5, size.x, h), Color(1, 1, 1, 0.15))
+		draw_rect(Rect2(0, y - h * 0.5, size.x * k, h), UiStyle.AMBER)
+
+
+## Rank number in a shield.
+class RankBadge:
+	extends Control
+	var rank := 1
+	func _init() -> void:
+		custom_minimum_size = Vector2(40, 44)
+		mouse_filter = MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var pts := PackedVector2Array([Vector2(w * 0.5, 2), Vector2(w - 3, h * 0.2), Vector2(w - 3, h * 0.58),
+			Vector2(w * 0.5, h - 2), Vector2(3, h * 0.58), Vector2(3, h * 0.2)])
+		draw_colored_polygon(pts, UiStyle.AMBER)
+		var f := UiStyle.font("black")
+		var t := str(rank)
+		var ts := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20)
+		draw_string(f, Vector2((w - ts.x) * 0.5, h * 0.5 + 6), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, UiStyle.INK)
+
+
+## Small line icons drawn in code (no image assets): siren, sky disc, towers,
+## car, trophy, help, gear.
+class Glyph:
+	static func draw(ci: CanvasItem, kind: String, c: Vector2, s: float, col: Color, t := 0.0) -> void:
+		var w := maxf(2.0, s * 0.09)
+		match kind:
+			"chase":
+				# Light bar: red and blue domes on a base, the lit one pulsing.
+				var on := fmod(t * 2.0, 2.0) < 1.0
+				ci.draw_rect(Rect2(c.x - s * 0.5, c.y + s * 0.08, s, s * 0.16), col)
+				ci.draw_circle(Vector2(c.x - s * 0.24, c.y + s * 0.06), s * 0.2, Color(UiStyle.RED, 1.0 if on else 0.45))
+				ci.draw_circle(Vector2(c.x + s * 0.24, c.y + s * 0.06), s * 0.2, Color(UiStyle.BLUE, 0.45 if on else 1.0))
+				for i in 3:
+					var a := -PI * 0.5 + (i - 1) * 0.5
+					var d := Vector2(cos(a), sin(a))
+					var o := Vector2(c.x + (-s * 0.24 if on else s * 0.24), c.y)
+					ci.draw_line(o + d * s * 0.3, o + d * s * 0.45, col, w * 0.7)
+			"sky":
+				var r := s * 0.48
+				var pts := PackedVector2Array()
+				for i in 25:
+					var a := TAU * i / 24.0
+					pts.append(c + Vector2(cos(a) * r, sin(a) * r * 0.3))
+				ci.draw_polyline(pts, col, w)
+				ci.draw_line(Vector2(c.x - r * 0.4, c.y + r * 0.35), Vector2(c.x - r * 0.4, c.y + r * 0.62), UiStyle.AMBER, w)
+				ci.draw_line(Vector2(c.x + r * 0.4, c.y + r * 0.35), Vector2(c.x + r * 0.4, c.y + r * 0.62), UiStyle.AMBER, w)
+				ci.draw_rect(Rect2(c.x - s * 0.1, c.y - s * 0.2, s * 0.2, s * 0.1), col)
+			"rooftops":
+				var b := c.y + s * 0.5
+				for tw in [[-0.42, 0.55], [-0.06, 0.95], [0.3, 0.7]]:
+					var x: float = c.x + s * float(tw[0])
+					var hh: float = s * float(tw[1])
+					ci.draw_rect(Rect2(x, b - hh, s * 0.2, hh), col, false, w)
+				ci.draw_line(Vector2(c.x - s * 0.22, b - s * 0.5), Vector2(c.x - s * 0.06, b - s * 0.6), UiStyle.AMBER, w)
+				ci.draw_line(Vector2(c.x + s * 0.14, b - s * 0.62), Vector2(c.x + s * 0.3, b - s * 0.66), UiStyle.AMBER, w)
+			"garage":
+				var y := c.y + s * 0.12
+				var body := PackedVector2Array([Vector2(c.x - s * 0.5, y), Vector2(c.x - s * 0.5, y - s * 0.18),
+					Vector2(c.x - s * 0.2, y - s * 0.22), Vector2(c.x - s * 0.08, y - s * 0.42), Vector2(c.x + s * 0.24, y - s * 0.42),
+					Vector2(c.x + s * 0.36, y - s * 0.22), Vector2(c.x + s * 0.5, y - s * 0.16), Vector2(c.x + s * 0.5, y),
+					Vector2(c.x - s * 0.5, y)])
+				ci.draw_polyline(body, col, w)
+				ci.draw_circle(Vector2(c.x - s * 0.26, y + s * 0.04), s * 0.12, col)
+				ci.draw_circle(Vector2(c.x + s * 0.26, y + s * 0.04), s * 0.12, col)
+			"records":
+				var cup := PackedVector2Array([Vector2(c.x - s * 0.3, c.y - s * 0.42), Vector2(c.x + s * 0.3, c.y - s * 0.42),
+					Vector2(c.x + s * 0.24, c.y - s * 0.04), Vector2(c.x, c.y + s * 0.1), Vector2(c.x - s * 0.24, c.y - s * 0.04)])
+				ci.draw_colored_polygon(cup, col)
+				ci.draw_arc(Vector2(c.x - s * 0.3, c.y - s * 0.24), s * 0.14, PI * 0.5, PI * 1.5, 10, col, w)
+				ci.draw_arc(Vector2(c.x + s * 0.3, c.y - s * 0.24), s * 0.14, -PI * 0.5, PI * 0.5, 10, col, w)
+				ci.draw_rect(Rect2(c.x - s * 0.05, c.y + s * 0.08, s * 0.1, s * 0.22), col)
+				ci.draw_rect(Rect2(c.x - s * 0.24, c.y + s * 0.3, s * 0.48, s * 0.12), col)
+			"help":
+				ci.draw_arc(c, s * 0.46, 0, TAU, 28, col, w)
+				var f := UiStyle.font("black")
+				var fs := int(s * 0.62)
+				var ts := f.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+				ci.draw_string(f, Vector2(c.x - ts.x * 0.5, c.y + fs * 0.34), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+			"settings":
+				var teeth := 8
+				var pts := PackedVector2Array()
+				for i in teeth * 4 + 1:
+					var a := TAU * i / (teeth * 4.0)
+					var r := s * (0.48 if (i % 4) in [1, 2] else 0.36)
+					pts.append(c + Vector2(cos(a), sin(a)) * r)
+				ci.draw_polyline(pts, col, w)
+				ci.draw_arc(c, s * 0.14, 0, TAU, 16, col, w)
+
+
+## A pill button with a line icon (icon only when text is empty).
+class GlyphButton:
+	extends Button
+	var glyph := ""
+	static func make(menus: Control, kind: String, label: String, cb: Callable) -> GlyphButton:
+		var b := GlyphButton.new()
+		b.glyph = kind
+		b.text = label
+		b.focus_mode = Control.FOCUS_ALL
+		b.add_theme_font_size_override("font_size", 17)
+		b.custom_minimum_size = Vector2(52, 50) if label == "" else Vector2(150, 50)
+		if label != "":
+			# Room on the left for the icon.
+			for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+				var sb := (menus.theme.get_stylebox(st, "Button") as StyleBox).duplicate()
+				sb.content_margin_left = 52
+				sb.content_margin_right = 24
+				b.add_theme_stylebox_override(st, sb)
+		b.pressed.connect(func():
+			var g = menus.get("game")
+			if g and g.has_method("ui_click"):
+				g.ui_click()
+			cb.call())
+		return b
+	func _draw() -> void:
+		var col := UiStyle.INK if get_draw_mode() in [DRAW_PRESSED, DRAW_HOVER_PRESSED] else UiStyle.WHITE
+		var s := 22.0
+		var at := Vector2(30.0, size.y * 0.5) if text != "" else size * 0.5
+		Glyph.draw(self, glyph, at, s, col)
+
+
+## A game mode on the title: icon, name, one line of your record in it.
+class ModeCard:
+	extends Button
+	const NAMES := {"chase": "Pursuit", "sky": "Sky Arena", "rooftops": "Rooftop Rumble"}
+	const BLURB := {"chase": "Endless chase", "sky": "Battle  ·  10 cars", "rooftops": "Battle  ·  10 cars"}
+	var mode := "chase"
+	var stat := ""
+	var selected := false
+	static func make(_menus: Control, m: String, p_stat: String) -> ModeCard:
+		var b := ModeCard.new()
+		b.mode = m
+		b.stat = p_stat
+		b.text = ""
+		b.focus_mode = Control.FOCUS_ALL
+		b.custom_minimum_size = Vector2(180, 96)
+		b.tooltip_text = NAMES[m]
+		return b
+	func _process(_dt: float) -> void:
+		if mode == "chase" and is_visible_in_tree():
+			queue_redraw()   # the light bar pulses
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		var sb := StyleBoxFlat.new()
+		sb.set_corner_radius_all(18)
+		sb.anti_aliasing = true
+		sb.bg_color = Color(UiStyle.AMBER, 0.16) if selected else Color(0.06, 0.07, 0.09, 0.62)
+		sb.border_color = UiStyle.AMBER if selected else Color(1, 1, 1, 0.1 + (0.12 if is_hovered() else 0.0))
+		sb.set_border_width_all(2 if selected else 1)
+		draw_style_box(sb, r)
+		if has_focus() and not selected:
+			var fb := StyleBoxFlat.new()
+			fb.draw_center = false
+			fb.set_corner_radius_all(18)
+			fb.border_color = Color(UiStyle.WHITE, 0.85)
+			fb.set_border_width_all(2)
+			draw_style_box(fb, r)
+		var t := Time.get_ticks_msec() / 1000.0
+		Glyph.draw(self, mode, Vector2(30, 30), 26.0, UiStyle.WHITE, t)
+		var f := UiStyle.font("black")
+		var fb2 := UiStyle.font("bold")
+		draw_string(f, Vector2(14, 66), NAMES[mode].to_upper(), HORIZONTAL_ALIGNMENT_LEFT, size.x - 20, 16,
+			UiStyle.AMBER if selected else UiStyle.WHITE)
+		draw_string(fb2, Vector2(14, 85), stat, HORIZONTAL_ALIGNMENT_LEFT, size.x - 20, 13, UiStyle.DIM)
+		draw_string(fb2, Vector2(52, 34), BLURB[mode].to_upper(), HORIZONTAL_ALIGNMENT_LEFT, size.x - 84, 11,
+			Color(UiStyle.WHITE, 0.45))
+		if selected:
+			# Check tick, top right.
+			var c := Vector2(size.x - 18, 18)
+			draw_circle(c, 9, UiStyle.AMBER)
+			draw_polyline(PackedVector2Array([c + Vector2(-4, 0), c + Vector2(-1, 3), c + Vector2(4, -3)]), UiStyle.INK, 2.0, true)
 
 
 class TitleLogo:
@@ -511,7 +906,7 @@ func show_results(r: Dictionary) -> void:
 	var gap := Control.new()
 	gap.size_flags_vertical = SIZE_EXPAND_FILL
 	right.add_child(gap)
-	right.add_child(_btn("Rematch" if battle else "Retry", func(): game.start_run(), true, 24))
+	right.add_child(_btn("Rematch" if battle else "Retry", func(): _transition(func(): game.start_run()), true, 24))
 	right.add_child(_btn("Garage", func(): _back_to = "title"; game.quit_to_menu(); show_screen("garage")))
 	var row2 := HBoxContainer.new()
 	row2.add_theme_constant_override("separation", 8)

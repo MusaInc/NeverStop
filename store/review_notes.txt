@@ -1,0 +1,13 @@
+NEVER STOP is a single-player, offline arcade driving game. There is no account, no network use, no in-app purchases and no user-generated content, so no login or demo account is needed.
+
+HOW TO PLAY
+After the loading screen the title screen shows three mode cards (Pursuit, Sky Arena, Rooftop Rumble); the selected one starts with PLAY.
+- Pursuit: escape the police for as long as you can. You are only caught ("busted") when police cars box you in and you stop.
+- Sky Arena / Rooftop Rumble: ten cars on a platform high above the city; push the others off, last car on it wins.
+Touch controls (landscape): slide a thumb on the left half to steer. On the right half, press to accelerate, drag down to brake or reverse, drag up for nitro, drag sideways to drift. JUMP / DROP buttons appear when those Workshop parts are fitted. Pause is at the top left. A first-run coach teaches the controls, and How to play on the title screen explains the rules. Game controllers and keyboards also work.
+Garage, Records and Settings are on the title screen. Cash is earned only by playing; there are no real-money purchases.
+
+CONTENT
+The city, cars, police, sound and music are original, made by Musa Studios (largely procedurally). Built with the Godot Engine and Jolt Physics (MIT licence); the Outfit typeface is under the SIL Open Font Licence. Credits are under Settings > Credits & licences. Pedestrians always step out of the way and cannot be hit; only vehicles crash.
+
+Contact: Musa Studios, support@musastudios.co.uk

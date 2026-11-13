@@ -1464,28 +1464,32 @@ func _bridge(s: Dictionary, detailed: bool) -> void:
 	var ytop: float = s["top"]
 	var xe: float = s["x_east"]
 	var xw: float = s["x_west"]
+	# The roadway runs on over the west anchorage to the approach viaduct
+	# (CityLayout._bridge's deck collision starts here too); it used to be
+	# drawn only from xw, leaving a 16 m see-through patch over the stone.
+	var xr := xw - 16.5
 	# Deck: road surface, red side girders, railings.
-	top(xw, zc - 10.0, xe, zc + 10.0, deck, Color(0.23, 0.24, 0.26), KIND_TRIM, 0, 0)
-	bottom(xw, zc - 10.0, xe, zc + 10.0, deck - 2.0, BRIDGE_RED.darkened(0.4), KIND_TRIM, 0, 0)
+	top(xr, zc - 10.0, xe, zc + 10.0, deck, Color(0.23, 0.24, 0.26), KIND_TRIM, 0, 0)
+	bottom(xr, zc - 10.0, xe, zc + 10.0, deck - 2.0, BRIDGE_RED.darkened(0.4), KIND_TRIM, 0, 0)
 	for sz: float in [-1.0, 1.0]:
 		var z0 := zc + sz * 10.0
-		solid(xw, minf(z0, z0 - sz * 1.2), xe, maxf(z0, z0 - sz * 1.2), deck - 2.4, deck + 0.4, BRIDGE_RED)
+		solid(xr, minf(z0, z0 - sz * 1.2), xe, maxf(z0, z0 - sz * 1.2), deck - 2.4, deck + 0.4, BRIDGE_RED)
 		if detailed:
-			beam(Vector3(xw, deck + 1.2, z0 - sz * 0.4), Vector3(xe, deck + 1.2, z0 - sz * 0.4), 0.12, 0.12, STEEL)
+			beam(Vector3(xr, deck + 1.2, z0 - sz * 0.4), Vector3(xe, deck + 1.2, z0 - sz * 0.4), 0.12, 0.12, STEEL)
 	if detailed:
 		# Road: a double yellow centre line, lane dashes, edge lines; raised
 		# walkways along both sides.
 		for zz: float in [-0.25, 0.25]:
-			top(xw, zc + zz - 0.08, xe, zc + zz + 0.08, deck + 0.02, Color(0.92, 0.78, 0.25), KIND_TRIM, 0, 0)
+			top(xr, zc + zz - 0.08, xe, zc + zz + 0.08, deck + 0.02, Color(0.92, 0.78, 0.25), KIND_TRIM, 0, 0)
 		for sz: float in [-1.0, 1.0]:
-			top(xw, zc + sz * 7.5 - 0.08, xe, zc + sz * 7.5 + 0.08, deck + 0.02, Color(0.9, 0.9, 0.86), KIND_TRIM, 0, 0)
-			var x := xw
+			top(xr, zc + sz * 7.5 - 0.08, xe, zc + sz * 7.5 + 0.08, deck + 0.02, Color(0.9, 0.9, 0.86), KIND_TRIM, 0, 0)
+			var x := xr
 			while x < xe:
 				top(x, zc + sz * 3.8 - 0.07, x + 3.0, zc + sz * 3.8 + 0.07, deck + 0.02, Color(0.9, 0.9, 0.86), KIND_TRIM,
 					0, 0)
 				x += 9.0
 			var w0 := zc + sz * 8.0
-			solid(xw, minf(w0, w0 + sz * 1.6), xe, maxf(w0, w0 + sz * 1.6), deck, deck + 0.22, Color(0.55, 0.54, 0.52))
+			solid(xr, minf(w0, w0 + sz * 1.6), xe, maxf(w0, w0 + sz * 1.6), deck, deck + 0.22, Color(0.55, 0.54, 0.52))
 		# Stiffening truss under the deck edges: Warren diagonals between a
 		# top and bottom chord, the classic suspension-bridge look.
 		for sz: float in [-1.0, 1.0]:

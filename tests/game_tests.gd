@@ -655,3 +655,89 @@ func test_9c_battle_arenas() -> void:
 	await _frames(240)
 	check(game.civilians.active_cars().size() > 0, "civilians back after a battle")
 	check(game.director.active, "police back after a battle")
+
+
+## The title: every control is on screen (inside the safe area), a mode card
+## picks what PLAY starts, and the attract camera frames the car off-centre.
+func test_9d_title_screen() -> void:
+	get_tree().paused = false
+	game.args.erase("bot")
+	game.state = game.State.BUSTED
+	game.quit_to_menu()
+	await _frames(5)
+	check(game.menus.current == "title", "quit lands on the title")
+	check(game.camera.frame_shift > 0.0, "attract camera frames the car to the side")
+	for n in ["PLAY", "mode_chase", "mode_sky", "mode_rooftops", "Garage", "Records", "How to play", "Settings"]:
+		var b := game.menus.find_child(n, true, false) as Button
+		var vp := game.get_viewport().get_visible_rect()
+		check(b != null and b.is_visible_in_tree() and vp.encloses(b.get_global_rect()), "title: '%s' on screen" % n)
+	check(_press("mode_sky"), "Sky Arena card is tappable")
+	await _frames(2)
+	check(game.state == game.State.MENU, "a card only selects, it doesn't start")
+	check(_press("PLAY"), "PLAY")
+	await _frames(10)
+	check(game.state == game.State.PLAYING and game.mode == "sky", "PLAY starts the selected mode (%s)" % game.mode)
+	check(game.camera.frame_shift == 0.0, "the chase camera is centred again")
+	game.quit_to_menu()
+	await _frames(5)
+	check(_press("mode_chase"), "Pursuit card")
+	check(_press("PLAY"), "PLAY again")
+	await _frames(10)
+	check(game.state == game.State.PLAYING and game.mode == "chase" and game.director.active, "and back to a pursuit")
+	game.state = game.State.BUSTED
+	game.quit_to_menu()
+	await _frames(3)
+
+
+## Trees line every pavement; at speed they're knocked down, not walls: the
+## car loses some speed but no health, and the tree is gone for good.
+func test_8b_trees_are_knocked_down() -> void:
+	await _start(1, false)
+	game.director.active = false
+	var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.new()
+	q.collision_mask = 1 | (1 << 7)   # buildings / structures + solid props
+	var item: Array = []
+	var from := Vector3.ZERO
+	for cell in game.props._grid.values():
+		for it in cell:
+			if not str(it[0]).begins_with("tree") or game.world.broken.has(it[3]) or (it[4] as CityWorld).broken.has(it[3]):
+				continue
+			var p: Vector3 = (it[1] as Transform3D).origin
+			if p.distance_to(game.player.global_position) > 600.0:
+				continue
+			# A clear 14 m run-up from +z (no wall, shelter or planter between).
+			var start := p + Vector3(0, 0, 14.0)
+			q.from = start + Vector3.UP * 1.0
+			q.to = p + Vector3.UP * 1.0
+			if not space.intersect_ray(q).is_empty():
+				continue
+			q.from = start + Vector3.UP * 3.0
+			q.to = start - Vector3.UP * 3.0
+			var g := space.intersect_ray(q)
+			if g.is_empty() or absf((g["position"] as Vector3).y - p.y) > 0.6:
+				continue
+			var busy := false
+			for c in game.civilians.active_cars():
+				if (c as Car).global_position.distance_to(p + Vector3(0, 0, 7)) < 12.0:
+					busy = true
+			if busy:
+				continue
+			item = it
+			from = (g["position"] as Vector3) + Vector3.UP * 0.5
+			break
+		if not item.is_empty():
+			break
+	check(not item.is_empty(), "a street tree with a clear run-up")
+	if item.is_empty():
+		game.director.active = true
+		return
+	game.player.place(Transform3D(Basis(), from), Vector3(0, 0, -20.0))
+	var h0: float = game.player.health
+	await _frames(90)
+	var kmh: float = game.player.speed * 3.6
+	note("%s at %s: car %.0f km/h after, health %.2f -> %.2f" % [item[0], str((item[1] as Transform3D).origin.round()), kmh, h0, game.player.health])
+	check(game.world.broken.has(item[3]) or (item[4] as CityWorld).broken.has(item[3]), "driving into a tree knocks it down")
+	check(game.player.global_position.z < (item[1] as Transform3D).origin.z - 2.0, "the car drives on past it")
+	check(game.player.health >= h0 - 0.01, "no damage from a tree")
+	game.director.active = true

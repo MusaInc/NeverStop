@@ -20,6 +20,10 @@ var mode := "chase"
 var distance_setting := 1   # 0 near, 1 normal, 2 far
 var base_fov := 64.0
 var reduce_motion := false
+## Menus: slide the framing sideways (metres) so the car sits off-centre and
+## clear of the panels (+ = car on the right third). Eased in and out.
+var frame_shift := 0.0
+var _shift := 0.0
 
 var _heading := Vector3.FORWARD
 var _pos := Vector3.ZERO
@@ -167,6 +171,11 @@ func _chase(dt: float) -> void:
 		lens = Vector3(cp.x + flat.x, lens.y, cp.z + flat.z)
 	var look_ahead := 2.5 + sp_t * 6.0
 	var look := cp + Vector3.UP * 0.9 + _heading * look_ahead
+	_shift = frame_shift if _snap else lerpf(_shift, frame_shift, 1.0 - exp(-2.5 * dt))
+	if absf(_shift) > 0.01:
+		var left := Vector3(_heading.z, 0.0, -_heading.x)   # heading rotated +90° (to the left)
+		lens += left * _shift
+		look += left * _shift * 1.15
 	# Pull in in front of walls.
 	var space := get_world_3d().direct_space_state
 	var from := cp + Vector3.UP * 1.2

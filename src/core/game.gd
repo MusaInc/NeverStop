@@ -108,17 +108,31 @@ func _ready() -> void:
 		args["save"] = "user://selftest_save.json"
 		SaveData.use_file(args["save"])
 
+	# Start-up takes seconds (the city is built here), so a real renderer gets
+	# a loading screen that picks up where the boot splash leaves off. Headless
+	# runs (tests, benchmarks) build in one go as before.
+	var loader: LoadingScreen = null
+	if DisplayServer.get_name() != "headless":
+		set_process(false)
+		set_physics_process(false)
+		loader = LoadingScreen.new()
+		add_child(loader)
+		await loader.step(0.04, "Laying the roads")
 	atmosphere = Atmosphere.new()
 	atmosphere.name = "Atmosphere"
 	add_child(atmosphere)
 	var t0 := Time.get_ticks_msec()
 	layout = CityLayout.new().generate()
+	if loader:
+		await loader.step(0.22, "Raising the city")
 	Car.water_check = layout.is_water
 	world = CityWorld.new()
 	world.name = "World"
 	world.layout = layout
 	add_child(world)
 	atmosphere.configure(args, world)
+	if loader:
+		await loader.step(0.62, "Mapping every lane")
 	net = RoadNet.new().build(layout)
 	print("World + road graph: %d ms (%d lanes, %d nodes)" % [Time.get_ticks_msec() - t0, net.lanes.size(), net.node_count()])
 
@@ -128,6 +142,8 @@ func _ready() -> void:
 	camera.reduce_motion = Settings.reduce_motion
 	camera.distance_setting = Settings.camera_distance
 	world.set_viewer(camera)
+	if loader:
+		await loader.step(0.8, "Briefing the police")
 	input = DriveInput.new()
 	input.name = "DriveInput"
 	add_child(input)
@@ -228,12 +244,37 @@ func _ready() -> void:
 			audio.play_at("prop_hit", at, 2.0 if by == player else -2.0)
 		if by == player:
 			contracts.smashed += 1
-			camera.shake(0.08 if kind in ["bin", "bollard", "sign_post"] else 0.18))
+			if kind.begins_with("tree"):
+				# A thump, not a crash: speed lost (Destructibles.SLOW), no damage.
+				camera.shake(0.28)
+				camera.punch(-2.5)
+				audio.play_at("crash_heavy_%d" % (randi() % 3), at, -9.0)
+				Settings.haptic(35, 0.6)
+				if score and state == State.PLAYING and not is_battle():
+					score.award("TIMBER", 120.0)
+			else:
+				camera.shake(0.08 if kind in ["bin", "bollard", "sign_post"] else 0.18))
+	if loader:
+		await loader.step(0.94, "Fuelling up")
+		set_process(true)
+		set_physics_process(true)
+		# Compile what first appears mid-chase while the cover is still up.
+		var warm := ShaderPrewarm.new()
+		warm.cam = camera.cam
+		add_child(warm)
+		await warm.done
+		loader.finish()
+		# Dynamic resolution: holds the frame rate on slower or hot devices.
+		var gov := FrameGovernor.new()
+		gov.name = "FrameGovernor"
+		add_child(gov)
 	var menus_script: Script = load("res://src/ui/menus.gd") if ResourceLoader.exists("res://src/ui/menus.gd") else null
 	if menus_script:
 		menus = menus_script.new()
 		ui.add_child(menus)
 		menus.setup(self)
+		if loader:
+			menus.hold_intro(0.55)
 	if not (args.has("gametest") or args.has("lineup") or args.has("bench") or args.has("selftest")):
 		daily = Progression.daily_claim(SaveData, Time.get_date_string_from_system())
 	if args.has("lineup"):
@@ -345,6 +386,7 @@ func start_run() -> void:
 	state = State.PLAYING
 	_bust_t = -1.0
 	camera.chase()
+	camera.frame_shift = 0.0
 	camera.set_target(player, true)
 	input.enabled = true
 	bot = null
@@ -375,6 +417,12 @@ func start_run() -> void:
 	kit.reset()
 	hud.start_coach(not is_battle() and not SaveData.data.get("tutorial_done", false) and bot == null and not args.has("notutorial"))
 	_scenario(args.get("scenario", ""))
+	if args.has("view"):
+		# Captures: --view=x,y,z puts the lens at a fixed point looking at the car.
+		var vs := str(args["view"]).split(",")
+		var vp := Vector3(float(vs[0]), float(vs[1]), float(vs[2]))
+		camera.fixed(vp)
+		camera.global_position = vp
 	hud.visible = true
 	touch.visible = hud.touch_mode
 	if audio:
@@ -625,7 +673,9 @@ func enter_menu() -> void:
 		audio.menu_mode = true
 	repairs.clear()
 	kit.reset()
-	# Attract mode: the autopilot drives with a couple of cops in tow.
+	# Attract mode: the autopilot drives with a couple of cops in tow, framed
+	# on the right third of the screen, clear of the title's panels.
+	camera.frame_shift = 2.4
 	bot = AIDriver.new(player)
 	bot.skill = 0.88
 	input.enabled = false

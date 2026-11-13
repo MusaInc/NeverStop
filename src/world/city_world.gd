@@ -54,7 +54,9 @@ var gpu_traffic := false
 ## streams back in doesn't resurrect it.
 var broken := {}
 ## Props cars crash into rather than flatten (on their own collision layer).
-const SOLID_PROPS := ["tree", "tree_tall", "bus_shelter", "planter"]
+## Trees used to be here too; they're knocked down now (Destructibles) -
+## street trees line every pavement and were too hard to avoid at speed.
+const SOLID_PROPS := ["bus_shelter", "planter"]
 const SOLID_LAYER := 1 << 7
 var max_builds_per_frame := 2
 

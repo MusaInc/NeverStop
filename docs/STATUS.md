@@ -1,3 +1,78 @@
+# Status: 2026-11-12 (1.0.0, release candidate)
+
+## Completion pass for App Store submission
+
+- **Bridge see-through patch fixed** (`BuildingMesher._bridge`): the road surface, markings, walkways
+  and side girders were drawn from the west anchorage's far edge, but the deck you drive on (and
+  the approach viaduct it joins) starts 16.5 m further west. Over the anchorage you saw bare stone
+  2 m below an invisible road. Drawn from the same x as the collision deck now.
+- **New app icon** (`src/ui/icon_art.gd` → `assets/icon_1024.png`, baked with the splash by
+  `tools/make_splash.sh`): your amber getaway car from behind, twin stripes and wing, racing down a
+  road into the red / blue glow of the police ahead. Opaque, no text. The old one was a dark render
+  of a car's nose that read as a blur at home-screen size. `tools/icon_shot.gd` is retired.
+- **First-launch stalls (CitySwing's 2.1 rejection)**, ported from CitySwing:
+  - `ShaderPrewarm` draws every mid-game shader (sirens, head beams, paint, glass, particles,
+    ad screens, rain, water, beacons...) and the StandardMaterial3D variants once behind the
+    loading screen, so a fresh install doesn't compile them mid-chase.
+  - 3-D pixel budget (`Settings.render_scale_cap`, presets' `pixels`: Low 1.2 MP, Medium 2.0 MP,
+    High 2.8 MP) with MetalFX spatial upscaling on iPhone / iPad. Medium/High used to render the
+    full panel (an iPhone is ~3 MP, a 13" iPad ~5.7 MP) with 4x MSAA.
+  - `FrameGovernor`: dynamic resolution, eases the 3-D scale down when the GPU falls behind.
+  - Soft shadow filter quality 1 on mobile (was 3).
+- **Store pack** (`store/`): `APP_STORE.md` (fields, keywords, age-rating suggestions, privacy
+  label, a pre-submit checklist), `description.txt`, `review_notes.txt`, `privacy-neverstop.html`,
+  and the screenshot gallery (`store/screenshots/iphone69`, `ipad13`; `tools/store_shots.sh`
+  renders genuine gameplay at native size, `tools/store_compose.sh` adds the headlines).
+- Version 1.0.0 (project, iOS export preset, TestFlight workflow default).
+- `--view=x,y,z` capture option: fixed lens looking at the car (how the bridge hole was found).
+
+# Status: 2026-11-11 (0.5.0 + start-up and title, unreleased)
+
+## Trees knock down
+
+- Street and park trees were solid (`CityWorld.SOLID_PROPS`): they line every pavement and were
+  too hard to avoid at speed. They're breakable street furniture now (`Destructibles`): the car
+  loses 12-14 % of its speed and no health, the tree topples over the bonnet as a heavy piece of
+  debris, with a thump, a lens punch, a haptic and **TIMBER +120** (chained; not in battles). It
+  counts for "smash" contracts and Street Sweeper. Police and civilians knock trees down too.
+  Bus shelters and planters stay solid.
+- Fix (all furniture): the hit check measured height in the car's own frame, so a car pitched up
+  a kerb could pass straight through an item's base. Height is now compared in world terms.
+  Furniture also breaks from 1 m/s (was 4 m/s) since nothing breakable blocks you any more.
+- Test: `game.test_8b_trees_are_knocked_down` (a clear run-up at 72 km/h: the tree is gone, the
+  car drives on past it, no damage).
+
+## Start-up and title screen
+
+- **No Godot splash.** `assets/ui/splash.png` (the NEVER STOP logo on asphalt ink with a red / blue
+  siren glow, baked from `src/ui/splash_art.gd` by `tools/make_splash.sh`) is the boot splash, the iOS
+  launch screen (`storyboard/custom_image@2x/@3x`) and the web loader image. Its edges are the
+  background colour, so letterboxing on iPad / wide iPhones has no seam.
+- **Loading screen** (`src/ui/loading_screen.gd`): start-up builds the whole city (~5.5 s on this
+  server) on a frozen frame after the splash. `Game._ready` now runs in five drawn stages behind the
+  same image (fit-centred exactly like the splash, so the hand-over is invisible) with a red→blue
+  progress line, a status line and a gameplay tip, holds a few frames while the first 3-D frames
+  compile shaders, then zooms through the logo into the title. Headless runs (tests, benchmarks)
+  build in one go as before.
+- **Title redesign** (`Menus._build_title`):
+  - Top bar: rank shield + name + XP bar + "N XP to <next rank>" (left), cash and a settings gear (right).
+  - Mode cards: Pursuit / Sky Arena / Rooftop Rumble, each with a drawn icon and your record in it
+    ("Beat 18,477", "2 won of 18"). A card selects; PLAY (now the only primary action) starts it, with
+    "PURSUIT · KESTREL · DOWNTOWN" underneath. Modes no longer start on one tap from the title.
+  - Dock: Garage / Records / How to play with icons.
+  - The attract camera frames your car on the right third (`ChaseCamera.frame_shift`), clear of
+    the panels; edge shading top and bottom so the bar and dock read over bright streets.
+  - The daily streak bonus is a one-off banner with a chime, not a permanent chip.
+  - Blocks fade up in sequence; PLAY fades through black so the cut to the start spot isn't seen
+    (both skipped with Reduce motion). Gamepad / keyboard focus starts on PLAY.
+- **Safe area**: every menu screen's margins now keep clear of the notch / home indicator (the HUD
+  and touch controls already did; menus sat 64 canvas px from the edge, inside the notch on iPhone).
+- Test: `game.test_9d_title_screen` (all title controls on screen, card selects without starting,
+  PLAY starts the selected mode, camera framing on the title and centred in the chase).
+- Checked here at 16:9, 4:3 (iPad) and 19.5:9 (iPhone) under Xvfb. Needs a person: the launch →
+  splash → loading → title sequence on a real iPhone (load time there), and whether one extra tap to
+  pick a battle mode is fine.
+
 # Status: 2026-11-11 (0.4.0)
 
 ## 0.5.0: battle modes, tighter turning, bigger stick, police from ahead
