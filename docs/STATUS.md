@@ -1,5 +1,26 @@
 # Status: 2026-11-13 (1.1.0 in progress)
 
+## Harbour Point: the south coast as a destination (`src/world/harbour_point.gd`)
+
+The south coast was a bare quay wall / rock bank with open sea beyond, and from the water (a car
+off the edge) you saw the underside of the world: no sea bed, quay walls stopping in mid-water.
+
+- **The Sea Fort**: a round stone fort ~280 m out in the bay: a drivable plaza at 7 m with a
+  roundabout round a red-and-white lighthouse (its lamp sweeps the bay at night), battlements round
+  the rim, four turrets, a gateway arch over the entrance.
+- **The Harbour Leap**: the bridge out to it on sea piles: two lanes, stone parapets, lamps, a pair
+  of bascule towers with a high walkway and chains over the shipping channel, and a humped crest
+  between them (a gentle hill at traffic speed, air at 80+ km/h). Lanes join the coastal ring and
+  loop round the lighthouse, so police and traffic go out there too (no city jumps on it).
+- **The Harbour Wheel**: a 60 m observation wheel on a stone pier beside the bridge foot, turning
+  slowly with its cabins hanging level (SeaAndSky), rim lamps lit at night; walkway from the
+  esplanade.
+- **Promenade**: a stone balustrade with lamps along ~400 m of the south sea wall, open at the
+  bridge and the wheel's walkway.
+- **No underside**: a sea bed under the whole sea at -5.2 m (below the island's skirts and quay
+  walls), and the chase camera never goes below the water line.
+- Boats and ships keep clear of it (`CityLayout.is_open_water`). Minimap draws the bridge and fort.
+
 ## Rooftop Rumble on the city's own roofs (`Arena._build_rooftops`)
 
 - No more steel decks on stilts: the battle floors are 5-7 existing towers' roofs, exactly as the

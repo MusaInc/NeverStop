@@ -197,6 +197,9 @@ func _chase(dt: float) -> void:
 	var hit := space.intersect_ray(_ray)
 	if not hit.is_empty():
 		lens.y = maxf(lens.y, (hit["position"] as Vector3).y + 0.6)
+	# Never under the sea (a car in the water, off a quay): stay over it.
+	if lens.y < Car.WATER_Y + 0.9 and Car.water_check.is_valid() and bool(Car.water_check.call(lens)):
+		lens.y = Car.WATER_Y + 0.9
 	if _snap:
 		_look = look
 	else:

@@ -31,7 +31,8 @@ func build(net: RoadNet, rng_seed := 77, count := 18) -> void:
 		tries += 1
 		var li := rng.randi() % net.lanes.size()
 		# (Not up on the expressway: a kicker there throws cars over its barrier.)
-		if net.lane_conn[li] == 1 or net.lane_len[li] < 220.0 or net.lane_speed[li] >= Expressway.SPEED - 0.1:
+		if net.lane_conn[li] == 1 or net.lane_len[li] < 220.0 or net.lane_speed[li] >= Expressway.SPEED - 0.1 \
+				or absf(net.lane_speed[li] - HarbourPoint.SPEED) < 0.01:
 			continue
 		var s := rng.randf_range(80.0, net.lane_len[li] - 120.0)
 		var d := net.lane_dir(li, s)

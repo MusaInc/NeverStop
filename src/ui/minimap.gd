@@ -294,6 +294,15 @@ class MapPainter:
 					for v: Vector3 in (ln["pts"] as PackedVector3Array):
 						p2.append(Vector2(v.x, v.z))
 					_line(p2, 3.0, RAIL)
+			if L.harbour:
+				var hp: HarbourPoint = L.harbour
+				_line(PackedVector2Array([hp.base, hp.fort]), 13.0, Color(0.1, 0.1, 0.11))
+				_line(PackedVector2Array([hp.base, hp.fort]), 9.0, Color(0.62, 0.66, 0.7))
+				var circ := PackedVector2Array()
+				for i in 33:
+					circ.append(hp.fort + Vector2(cos(TAU * i / 32.0), sin(TAU * i / 32.0)) * HarbourPoint.FORT_R)
+				_poly(circ, Color(0.66, 0.62, 0.55))
+				_line(circ, 3.0, Color(0.45, 0.42, 0.37))
 			if L.expressway:
 				_line(L.expressway.line, 13.0, Color(0.1, 0.1, 0.11))
 				_line(L.expressway.line, 9.0, Color(0.95, 0.72, 0.3))

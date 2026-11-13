@@ -180,6 +180,23 @@ func build_network() -> void:
 				ln.reverse()
 			_add_lane(ln, false, Expressway.SPEED, piece, [], ex.height_at)
 		piece += 1
+	# Harbour Point: the bridge out to the Sea Fort and the roundabout round
+	# its lighthouse.
+	if layout.harbour:
+		var hp := layout.harbour
+		for sgn: float in [1.0, -1.0]:
+			var ln := CityLayout._offset_line(hp.axis, HarbourPoint.LANE * sgn)
+			if sgn < 0.0:
+				ln.reverse()
+			_add_lane(ln, false, HarbourPoint.SPEED, piece, [], hp.height_at)
+		piece += 1
+		var loop := PackedVector2Array()
+		var nl := 40
+		for i in nl:
+			var a := -TAU * i / nl
+			loop.append(hp.fort + Vector2(cos(a), sin(a)) * HarbourPoint.LOOP_R)
+		_add_lane(loop, true, LANE_V["roundabout"], piece, [], hp.height_at)
+		piece += 1
 	# Roundabouts: two lanes, one way (anticlockwise seen from above, north up).
 	for rb in R.roundabouts:
 		for dr: float in [-3.2, 3.2]:

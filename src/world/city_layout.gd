@@ -84,6 +84,8 @@ var bridge_ramp := PackedVector3Array()  # island approach, deck centreline
 ## The Diagonal Expressway (island only; null on the mainland or if it
 ## couldn't be laid out) and the street-layer collision of its deck.
 var expressway: Expressway
+## Harbour Point on the south coast (island only; null if not laid out).
+var harbour: HarbourPoint
 var street_obbs: Array = []    # [Transform3D, size]: oriented boxes that collide as street
 var public_furniture: Array = []  # authored public spaces, merged with street furniture
 var public_gardens: Array[Vector3] = []
@@ -146,6 +148,10 @@ func generate(p_seed := 1207) -> CityLayout:
 	_skybridges()  # (after the line: it may have cleared a tower from its path)
 	pieces.lighthouse()
 	CoastLife.new(self).build()  # North Beach and the Marina
+	var hp := HarbourPoint.new(self)
+	if hp.plan():
+		harbour = hp
+		hp.build()
 	_traffic()
 	_sea()
 	CityInfrastructure.public_spaces(self)
@@ -1083,6 +1089,14 @@ func is_water(p: Vector3) -> bool:
 			return true
 		return mainland != null and mainland.is_water(p)
 	return not Geometry2D.is_point_in_polygon(q, coast)
+
+
+## Sea a boat can sail on: water, and not under Harbour Point's bridge,
+## fort or wheel pier.
+func is_open_water(p: Vector3) -> bool:
+	if harbour and harbour.covers(Vector2(p.x, p.z), 8.0):
+		return false
+	return is_water(p)
 
 
 func is_park(p: Vector2) -> bool:

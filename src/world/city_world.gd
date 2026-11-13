@@ -873,6 +873,26 @@ func _build_water() -> void:
 		m.top(r.position.x, r.position.y, r.end.x, r.end.y, -1.6, Color.WHITE, 0, 0, 0)
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, m.arrays())
+	# The sea bed, under the whole sea (and the island's skirts and quay
+	# walls, which stop at -4.5): from the water or a quay you see sand and
+	# shadow, not the underside of the world.
+	var bed := BuildingMesher.new()
+	var all := Rect2()
+	for w in layout.water:
+		all = w if all.size == Vector2.ZERO else all.merge(w)
+	if all.size != Vector2.ZERO:
+		bed.top(all.position.x, all.position.y, all.end.x, all.end.y, -5.2, Color(0.32, 0.36, 0.33), 0, 0, 0)
+		var bm := ArrayMesh.new()
+		bm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, bed.arrays())
+		var bmi := MeshInstance3D.new()
+		bmi.name = "SeaBed"
+		bmi.mesh = bm
+		var smat := StandardMaterial3D.new()
+		smat.albedo_color = Color(0.3, 0.34, 0.31)
+		smat.roughness = 1.0
+		bmi.material_override = smat
+		bmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(bmi)
 	var mi := MeshInstance3D.new()
 	mi.name = "Water"
 	mi.mesh = mesh

@@ -46,6 +46,9 @@ var _plane_t := 0.0
 var _plane_from := Vector3.ZERO
 var _plane_dir := Vector3.FORWARD
 var _blinkers: Array[Node3D] = []
+var _wheel: Node3D                 # Harbour Point's observation wheel (turns)
+var _cabins: Array[Node3D] = []
+var _beam: Node3D                  # the Sea Fort lighthouse's sweeping glow
 var _time := 0.0
 
 
@@ -59,12 +62,15 @@ func setup(l: CityLayout) -> void:
 	_helicopter()
 	_airliner()
 	_gulls()
+	_harbour_wheel()
 	print("SeaAndSky: %d ships, %d boats, helicopter, airliner" % [_ships.size(), _boats.size()])
 
 
 func set_night(n: float) -> void:
 	if _lamp_mat:
 		_lamp_mat.emission_energy_multiplier = lerpf(0.4, 5.0, n)
+	if _beam:
+		_beam.visible = n > 0.3
 
 
 # ------------------------------------------------------------ materials
@@ -84,6 +90,88 @@ func _materials() -> void:
 	_wake_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_wake_mat.vertex_color_use_as_albedo = true
 	_wake_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+
+# ------------------------------------------------- Harbour Point's wheel
+## The observation wheel on its pier (HarbourPoint gives the spot): a rim
+## of 32 chords, spokes, 24 cabins that hang level as it turns, and lamps
+## round the rim (the lamp material glows at night). Plus the lighthouse's
+## lamp: a glowing lens and a slow sweep of light.
+func _harbour_wheel() -> void:
+	var hp: HarbourPoint = layout.harbour
+	if hp == null:
+		return
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var lamps := SurfaceTool.new()
+	lamps.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var r := hp.wheel_r
+	var n := 32
+	for i in n:
+		var a0 := TAU * i / n
+		var a1 := TAU * (i + 1) / n
+		for z: float in [-1.6, 1.6]:
+			var p0 := Vector3(cos(a0) * r, sin(a0) * r, z)
+			var p1 := Vector3(cos(a1) * r, sin(a1) * r, z)
+			var mid := (p0 + p1) * 0.5
+			var d := p1 - p0
+			var xf := Transform3D(Basis(Vector3.FORWARD, atan2(d.y, d.x)), mid)
+			_box(st, Vector3.ZERO, Vector3(d.length() + 0.3, 0.6, 0.6), WHITE, xf)
+			_box(lamps, Vector3.ZERO, Vector3(0.5, 0.5, 0.5), Color(1.0, 0.85, 0.5), Transform3D(Basis(), p0 + Vector3(0, 0, z * 0.2)))
+		if i % 2 == 0:
+			# Spoke pair and a cross tie.
+			for z: float in [-1.6, 1.6]:
+				var p := Vector3(cos(a0) * r, sin(a0) * r, z) * 0.5
+				p.z = z
+				_box(st, Vector3.ZERO, Vector3(r, 0.22, 0.22), Color(0.82, 0.84, 0.86), Transform3D(Basis(Vector3.FORWARD, a0), p))
+			_box(st, Vector3.ZERO, Vector3(0.3, 0.3, 3.4), WHITE, Transform3D(Basis(), Vector3(cos(a0) * r, sin(a0) * r, 0)))
+	var wheel_mesh := st.commit()
+	_box(lamps, Vector3.ZERO, Vector3(2.0, 2.0, 4.0), Color(1.0, 0.85, 0.5), Transform3D.IDENTITY)
+	var lamp_mesh := lamps.commit()
+	_wheel = Node3D.new()
+	_wheel.name = "HarbourWheel"
+	add_child(_wheel)
+	_wheel.global_transform = Transform3D(Basis.looking_at(hp.wheel_axis, Vector3.UP), hp.wheel_c)
+	var mi := MeshInstance3D.new()
+	mi.mesh = wheel_mesh
+	mi.material_override = _mat
+	_wheel.add_child(mi)
+	var li := MeshInstance3D.new()
+	li.mesh = lamp_mesh
+	li.material_override = _lamp_mat
+	li.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_wheel.add_child(li)
+	# Cabins: hung from the rim, kept level every frame.
+	var cst := SurfaceTool.new()
+	cst.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_box(cst, Vector3(0, -1.6, 0), Vector3(3.2, 2.4, 2.4), Color(0.9, 0.3, 0.2))
+	_box(cst, Vector3(0, -0.3, 0), Vector3(2.8, 0.3, 2.0), WHITE)
+	_box(cst, Vector3(0, -1.4, 0), Vector3(3.3, 0.9, 2.5), Color(0.25, 0.35, 0.45))
+	var cabin := cst.commit()
+	var yaw := atan2(-hp.wheel_axis.x, -hp.wheel_axis.z)
+	for i in 24:
+		var a := TAU * i / 24.0
+		var cb := MeshInstance3D.new()
+		cb.mesh = cabin
+		cb.material_override = _mat
+		cb.position = Vector3(cos(a) * r, sin(a) * r, 0.0)
+		cb.set_meta("yaw", yaw)
+		_wheel.add_child(cb)
+		_cabins.append(cb)
+	# The lighthouse lamp: a bright lens and a slow sweep (two long, thin
+	# glowing blades) at night only (lamp material: dim by day).
+	if hp.beacon != Vector3.ZERO:
+		var bst := SurfaceTool.new()
+		bst.begin(Mesh.PRIMITIVE_TRIANGLES)
+		_box(bst, Vector3.ZERO, Vector3(3.0, 2.4, 3.0), Color(1.0, 0.9, 0.6))
+		for sg: float in [-1.0, 1.0]:
+			_box(bst, Vector3(sg * 22.0, 0, 0), Vector3(40.0, 0.25, 0.6), Color(1.0, 0.9, 0.6) * 0.6)
+		_beam = MeshInstance3D.new()
+		(_beam as MeshInstance3D).mesh = bst.commit()
+		(_beam as MeshInstance3D).material_override = _lamp_mat
+		(_beam as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_beam)
+		_beam.global_position = hp.beacon
 
 
 # ------------------------------------------------------------ mesh kit
@@ -231,7 +319,7 @@ func _route_ok(pts: PackedVector3Array, clear: float) -> bool:
 		for k in n + 1:
 			var p := a.lerp(b, k / float(n))
 			for o: Vector3 in [Vector3.ZERO, Vector3(clear, 0, 0), Vector3(-clear, 0, 0), Vector3(0, 0, clear), Vector3(0, 0, -clear)]:
-				if not layout.is_water(p + o):
+				if not layout.is_open_water(p + o):
 					return false
 	return true
 
@@ -408,8 +496,8 @@ func _boats_on_loops() -> void:
 			for i in 24:
 				var a := TAU * i / 24.0
 				var p: Vector2 = c + Vector2(cos(a) * r.x, sin(a) * r.y) * shrink
-				if not layout.is_water(Vector3(p.x, 0, p.y)) or not layout.is_water(Vector3(p.x + 12, 0, p.y)) \
-						or not layout.is_water(Vector3(p.x - 12, 0, p.y)):
+				if not layout.is_open_water(Vector3(p.x, 0, p.y)) or not layout.is_open_water(Vector3(p.x + 12, 0, p.y)) \
+						or not layout.is_open_water(Vector3(p.x - 12, 0, p.y)):
 					ok = false
 					break
 			if ok:
@@ -596,6 +684,12 @@ func _process(dt: float) -> void:
 			_plane.transform = Transform3D(Basis(Vector3.UP, atan2(-_plane_dir.x, -_plane_dir.z)), _plane_from + _plane_dir * 70.0 * _plane_t)
 			if _plane_t * 70.0 > 6400.0:
 				_next_flight()
+	if _wheel:
+		_wheel.rotate_object_local(Vector3.FORWARD, dt * 0.05)
+		for cb in _cabins:
+			cb.global_basis = Basis(Vector3.UP, cb.get_meta("yaw"))   # cabins hang level
+	if _beam:
+		_beam.rotate_y(dt * 0.9)
 	var on := fmod(_time, 1.2) < 0.12
 	for bl in _blinkers:
 		bl.visible = on
