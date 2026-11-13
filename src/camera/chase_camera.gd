@@ -144,8 +144,11 @@ func _chase(dt: float) -> void:
 	var top: float = car.spec.get("top_speed", 55.0)
 	var sp_t := clampf(spd / top, 0.0, 1.2)
 	var dist_base: float = [5.0, 6.0, 7.4][clampi(distance_setting, 0, 2)]
-	var dist := dist_base + sp_t * 1.6
-	var height := 1.85 + sp_t * 0.35 + (car.spec["size"] as Vector3).y * 0.35
+	# Fit the vehicle: a 6.6 m, 2.9 m-tall truck needs the lens further back
+	# and well above its roof, or the body fills the screen and hides the road.
+	var fit := size_fit(car.spec)
+	var dist := dist_base + fit.x + sp_t * 1.6
+	var height := fit.y + sp_t * 0.35
 	if car.wheels_on_ground == 0:
 		dist += 0.8
 		height += 0.4
@@ -169,8 +172,8 @@ func _chase(dt: float) -> void:
 	if flat.length() < dist * 0.8:
 		flat = flat.normalized() * dist * 0.8 if flat.length() > 0.01 else -_heading * dist
 		lens = Vector3(cp.x + flat.x, lens.y, cp.z + flat.z)
-	var look_ahead := 2.5 + sp_t * 6.0
-	var look := cp + Vector3.UP * 0.9 + _heading * look_ahead
+	var look_ahead := 2.5 + fit.z + sp_t * 6.0
+	var look := cp + Vector3.UP * fit.w + _heading * look_ahead
 	_shift = frame_shift if _snap else lerpf(_shift, frame_shift, 1.0 - exp(-2.5 * dt))
 	if absf(_shift) > 0.01:
 		var left := Vector3(_heading.z, 0.0, -_heading.x)   # heading rotated +90° (to the left)
@@ -203,10 +206,28 @@ func _chase(dt: float) -> void:
 	# FOV: speed and nitro.
 	_fov_kick = move_toward(_fov_kick, 0.0, dt * 14.0)
 	var nitro_fov := 6.0 if (car.nitro and car.nitro_amount > 0.0) else 0.0
-	var fov := base_fov + pow(sp_t, 1.5) * 16.0 + nitro_fov + _fov_kick
+	var big := clampf(fit.x / 3.0, 0.0, 1.0) * 5.0   # a touch wider for big vehicles
+	var fov := base_fov + big + pow(sp_t, 1.5) * 16.0 + nitro_fov + _fov_kick
 	if reduce_motion:
-		fov = base_fov + sp_t * 8.0
+		fov = base_fov + big + sp_t * 8.0
 	cam.fov = lerpf(cam.fov, fit_fov(fov), 1.0 - exp(-4.0 * dt))
+
+
+## Per-vehicle framing from the body's real size (origin at road level):
+## x = extra distance back (m), y = lens height, z = extra look-ahead,
+## w = look-at height. A normal car (4.8 m long, roof ~1.4 m) gets the
+## original framing; longer and taller bodies push the lens back and up
+## so the road ahead stays visible over the roof.
+static func size_fit(spec: Dictionary) -> Vector4:
+	var size: Vector3 = spec.get("size", Vector3(1.9, 1.25, 4.8))
+	var roof: float = float(spec.get("ride", 0.14)) + size.y
+	var extra_len := maxf(size.z - 4.7, 0.0)
+	var extra_tall := maxf(roof - 1.45, 0.0)
+	var back := extra_len * 0.9 + extra_tall * 1.0
+	var height := maxf(1.85 + size.y * 0.35, roof + 0.85 + extra_tall * 0.9)
+	var ahead := extra_len * 0.7 + extra_tall * 1.2
+	var look_y := maxf(0.9, roof * 0.6)
+	return Vector4(back, height, ahead, look_y)
 
 
 ## FOVs are tuned for 16:9 and wider (the vertical angle is kept, so wide

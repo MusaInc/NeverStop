@@ -34,6 +34,10 @@ float vnoise(vec2 p) {
 	return mix(mix(hash12(i), hash12(i + vec2(1, 0)), f.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), f.x), f.y);
 }
 
+vec3 yellow_box() {
+	return vec3(0.92, 0.76, 0.25);
+}
+
 // 1 inside a band of half-width h around 0, antialiased by aa.
 float band(float d, float h, float aa) {
 	return 1.0 - smoothstep(h - aa, h + aa, abs(d));
@@ -124,27 +128,71 @@ void fragment() {
 				float ring = length(mh);
 				albedo *= 1.0 - 0.25 * band(ring, 0.38, aa) * mh_on * near;
 				albedo *= 1.0 - 0.35 * band(ring - 0.38, 0.04, aa) * mh_on * near;
-				// Paint: centre line (double yellow on boulevards, dashed white on
-				// streets), zebra crossings and stop lines at every junction mouth.
+				// Paint. Road types read from the field: boulevards are negative
+				// half widths; the coastal ring is the 22 m one (hw 11), the big
+				// boulevards 26 m (hw 13), streets 13-18 m.
 				vec3 white = vec3(0.9, 0.9, 0.86);
 				vec3 yellow = vec3(0.92, 0.76, 0.25);
 				float wear = 0.82 + 0.18 * vnoise(p * 1.7);
-				float centre = avenue > 0.5
-					? band(a - 0.22, 0.07, aa) * step(4.6, from_j)
-					: band(across, 0.07, aa) * step(5.0, from_j) * step(fract(along / 8.0), 0.375);
-				albedo = mix(albedo, (avenue > 0.5 ? yellow : white) * wear, centre);
-				// Boulevards: dashed lane dividers between the two lanes each way.
-				float divider = avenue * step(10.0, hw) * band(a - 5.1, 0.07, aa) * step(5.0, from_j)
+				float ring_road = avenue * step(10.5, hw) * step(hw, 11.5);
+				float blvd = avenue * (1.0 - ring_road);
+				float past = step(5.0, from_j);
+				float paint = 0.0;
+				// Coastal ring = expressway: darker fresh surface, a hatched
+				// central reservation between solid lines, solid edge lines with
+				// a hard shoulder, long lane dashes.
+				albedo *= 1.0 - 0.12 * ring_road;
+				float res_edge = band(a - 1.15, 0.08, aa);
+				float chevron = band(fract((along + a * 1.6) / 3.2) - 0.5, 0.11, aa / 3.2) * step(a, 1.05);
+				float ring_paint = ring_road * past * max(res_edge, chevron);
+				float edge_line = ring_road * past * band(a - (hw - 1.4), 0.1, aa);
+				float ring_dash = ring_road * past * band(a - 5.6, 0.08, aa) * step(fract(along / 12.0), 0.5);
+				albedo = mix(albedo, white * wear, max(ring_paint, max(edge_line, ring_dash)));
+				paint = max(paint, max(ring_paint, max(edge_line, ring_dash)));
+				// Boulevards: double yellow centre, dashed lane dividers, and a red
+				// bus lane along the kerb on some stretches (solid line beside it).
+				float dbl = blvd * band(a - 0.22, 0.07, aa) * step(4.6, from_j);
+				albedo = mix(albedo, yellow * wear, dbl);
+				float divider = blvd * step(10.0, hw) * band(a - 5.1, 0.07, aa) * past
 					* step(fract(along / 9.0), 0.33);
-				albedo = mix(albedo, white * wear, divider);
+				float bus_on = blvd * step(12.0, hw) * step(0.52, vnoise(p * 0.006 + 5.0)) * past;
+				float bus = bus_on * smoothstep(hw - 3.45, hw - 3.35, a) * step(a, hw - 0.45);
+				albedo = mix(albedo, vec3(0.42, 0.13, 0.1) * (0.85 + 0.2 * drift), bus * 0.85);
+				float bus_line = bus_on * band(a - (hw - 3.5), 0.12, aa);
+				albedo = mix(albedo, white * wear, max(divider, bus_line));
+				paint = max(paint, max(dbl, max(divider, bus_line)));
+				// Streets: dashed white centre; some get a green cycle lane
+				// along each kerb behind a solid line.
+				float street = 1.0 - avenue;
+				float centre = street * band(across, 0.07, aa) * past * step(fract(along / 8.0), 0.375);
+				float cyc_on = street * step(7.4, hw) * step(0.6, vnoise(p * 0.005 + 19.0)) * past;
+				float cyc = cyc_on * smoothstep(hw - 2.05, hw - 1.95, a) * step(a, hw - 0.5);
+				albedo = mix(albedo, vec3(0.2, 0.42, 0.26) * (0.85 + 0.2 * drift), cyc * 0.8);
+				float cyc_line = cyc_on * band(a - (hw - 2.1), 0.07, aa);
+				albedo = mix(albedo, white * wear, max(centre, cyc_line));
+				paint = max(paint, max(centre, cyc_line));
+				// Zebra crossings at every junction mouth; boulevards and the ring
+				// get a solid stop line, streets a dashed give-way double line.
 				float zebra_u = fract((across + hw - 1.5) / 1.2);
 				float zebra = band(zebra_u - 0.5, 0.25, aa / 1.2) * step(from_j, 4.0) * step(1.0, from_j)
 					* step(a, hw - 1.0);
-				float stop = band(from_j - 4.8, 0.22, aa) * step(0.3, a) * step(a, hw - 0.3);
+				float stop_l = band(from_j - 4.8, 0.22, aa) * step(0.3, a) * step(a, hw - 0.3);
+				float giveway = (band(from_j - 4.75, 0.1, aa) + band(from_j - 5.25, 0.1, aa))
+					* step(fract(across / 1.2), 0.6) * step(0.3, a) * step(a, hw - 0.3);
+				float stop = mix(min(giveway, 1.0), stop_l, avenue);
 				albedo = mix(albedo, white * wear, max(zebra, stop));
-				rough = mix(rough, 0.7, max(centre, max(zebra, stop)));
+				paint = max(paint, max(zebra, stop));
+				rough = mix(rough, 0.7, paint);
 			} else if (on) {
 				albedo *= 1.03;  // junctions: a touch lighter, worn smooth
+				// Big junctions (a boulevard or the ring): a yellow box, criss-
+				// cross hatched, kept off the edges of the box.
+				float big_j = step(10.0, hw) * smoothstep(-1.2, -2.0, other) * step(a, hw - 1.2);
+				float hatch = max(band(fract((p.x + p.y) / 4.2) - 0.5, 0.02, aa / 4.2),
+					band(fract((p.x - p.y) / 4.2) - 0.5, 0.02, aa / 4.2));
+				float box = big_j * hatch * near * 0.85;
+				albedo = mix(albedo, yellow_box() * (0.82 + 0.18 * vnoise(p * 1.7)), box);
+				rough = mix(rough, 0.7, box);
 			}
 		} else if (pave) {
 			c *= vec3(0.8, 0.83, 0.88);

@@ -158,7 +158,7 @@ func _draw_overlay() -> void:
 
 
 static func _prio(kind: String) -> int:
-	return {"repair_pin": 5, "repair": 3, "roadblock": 4, "heli": 3, "heavy": 2, "patrol": 2, "interceptor": 2, "wreck": 0}.get(kind, 1)
+	return {"repair_pin": 5, "repair": 3, "cash": 2, "roadblock": 4, "heli": 3, "heavy": 2, "patrol": 2, "interceptor": 2, "wreck": 0}.get(kind, 1)
 
 
 func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
@@ -186,6 +186,11 @@ func _marker(ov: Control, p: Vector2, kind: String, pinned: bool) -> void:
 			ov.draw_circle(p, pr, Color(0.03, 0.06, 0.04, 0.85))
 			ov.draw_rect(Rect2(p + Vector2(-4.5, -1.5), Vector2(9, 3)), UiStyle.GREEN)
 			ov.draw_rect(Rect2(p + Vector2(-1.5, -4.5), Vector2(3, 9)), UiStyle.GREEN)
+		"cash":
+			# A gold coin with a dark edge.
+			ov.draw_circle(p, 5.6, Color(0.08, 0.06, 0.02, 0.85))
+			ov.draw_circle(p, 4.2, RepairPickups.GOLD)
+			ov.draw_rect(Rect2(p + Vector2(-0.8, -2.6), Vector2(1.6, 5.2)), Color(0.45, 0.3, 0.05))
 		_:
 			# Police: a dot flashing red/blue; heavy units bigger.
 			var r := 4.6 if kind == "heavy" else 3.6

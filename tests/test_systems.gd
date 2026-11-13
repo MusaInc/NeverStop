@@ -169,3 +169,15 @@ func test_daily_streak(t) -> void:
 	t.check(d2["day"] == 2 and d2["reward"] == Progression.DAILY[1], "next day continues the streak")
 	var d3 := Progression.daily_claim(save, "2026-11-05")
 	t.check(d3["day"] == 1, "a missed day starts again")
+
+
+func test_camera_fits_the_vehicle(t) -> void:
+	# A normal car keeps the classic framing; the truck sits further back and
+	# well above its roof (the user couldn't see the road from the Mammoth).
+	var small := ChaseCamera.size_fit(CarCatalog.spec("kestrel"))
+	var truck := ChaseCamera.size_fit(CarCatalog.spec("mammoth"))
+	var roof: float = float(CarCatalog.spec("mammoth")["ride"]) + (CarCatalog.spec("mammoth")["size"] as Vector3).y
+	t.near(small.x, 0.0, 0.1, "hatch: (almost) no extra distance")
+	t.check(truck.x > 2.5, "truck: lens %.1f m further back" % truck.x)
+	t.check(truck.y > roof + 1.5, "truck: lens %.1f m, roof %.1f m" % [truck.y, roof])
+	t.check(truck.z > small.z + 2.0, "truck: looks further ahead")

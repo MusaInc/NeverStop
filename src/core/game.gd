@@ -46,6 +46,11 @@ var props: Destructibles
 var jumps: Jumps
 var speed_fx: SpeedFx
 var repairs: RepairPickups
+## Gold cash drops on the inner streets (RepairPickups, kind "cash").
+var cash_drops: RepairPickups
+var drop_cash := 0
+const DROP_CASH := 120
+const DROP_POINTS := 600.0
 var kit: BattleKit
 var menus: Node            # Menus (title, garage, records, settings, pause, results)
 var car_id := "kestrel"
@@ -222,6 +227,12 @@ func _ready() -> void:
 	add_child(repairs)
 	repairs.setup(net, player)
 	repairs.collected.connect(_on_repaired)
+	cash_drops = RepairPickups.new()
+	cash_drops.kind = "cash"
+	cash_drops.name = "CashDrops"
+	add_child(cash_drops)
+	cash_drops.setup(net, player)
+	cash_drops.collected.connect(_on_cash_drop)
 	kit = BattleKit.new()
 	kit.name = "BattleKit"
 	add_child(kit)
@@ -232,6 +243,7 @@ func _ready() -> void:
 	touch.kit = kit
 	hud.kit = kit
 	hud.repairs = repairs
+	hud.cash_drops = cash_drops
 	kit.hit.connect(func(kind, c):
 		if arena and arena.running and c is Car:
 			(c as Car).last_hit_by = player
@@ -366,6 +378,8 @@ func spawn_player(id: String) -> void:
 		kit.setup(player)
 	if repairs:
 		repairs.player = player
+	if cash_drops:
+		cash_drops.player = player
 	if director:
 		director.player = player
 		civilians.player = player
@@ -411,9 +425,12 @@ func start_run() -> void:
 	if is_battle():
 		contracts.stop()
 		repairs.clear()
+		cash_drops.clear()
 	else:
 		contracts.begin(score, int(args["seed"]) if args.has("seed") else -1)
 		repairs.begin(int(args["seed"]) if args.has("seed") else -1)
+		cash_drops.begin(int(args["seed"]) + 7 if args.has("seed") else -1)
+	drop_cash = 0
 	kit.reset()
 	hud.start_coach(not is_battle() and not SaveData.data.get("tutorial_done", false) and bot == null and not args.has("notutorial"))
 	_scenario(args.get("scenario", ""))
@@ -476,6 +493,7 @@ func _begin_battle() -> void:
 	for c in civilians.cars:
 		civilians._park(c)
 	repairs.clear()
+	cash_drops.clear()
 	var r := RandomNumberGenerator.new()
 	r.seed = int(args["seed"]) if args.has("seed") else randi()
 	var ids: Array = CarCatalog.ORDER.filter(func(i): return i != car_id)
@@ -672,6 +690,7 @@ func enter_menu() -> void:
 	if audio:
 		audio.menu_mode = true
 	repairs.clear()
+	cash_drops.clear()
 	kit.reset()
 	# Attract mode: the autopilot drives with a couple of cops in tow, framed
 	# on the right third of the screen, clear of the title's panels.
@@ -741,7 +760,8 @@ func _on_busted() -> void:
 	last_result["contracts"] = contracts.done_count
 	last_result["contract_cash"] = contracts.cash
 	last_result["smashed"] = contracts.smashed
-	last_result["currency"] = int(last_result["currency"]) + contracts.cash
+	last_result["drop_cash"] = drop_cash
+	last_result["currency"] = int(last_result["currency"]) + contracts.cash + drop_cash
 	var xp_before := int(SaveData.data.get("xp", 0))
 	last_result["records"] = SaveData.submit_run(last_result, car_id)
 	SaveData.data["total_contracts"] = int(SaveData.data.get("total_contracts", 0)) + contracts.done_count
@@ -919,6 +939,18 @@ func _on_repaired(_at: Vector3) -> void:
 	if hud:
 		hud.flash(UiStyle.GREEN, 0.35)
 	Settings.haptic(60, 0.6)
+
+
+func _on_cash_drop(_at: Vector3) -> void:
+	if state != State.PLAYING:
+		return
+	drop_cash += DROP_CASH
+	score.award("CASH DROP +$%d" % DROP_CASH, DROP_POINTS, true)
+	if audio:
+		audio.play("repair", 0.0)
+	if hud:
+		hud.flash(RepairPickups.GOLD, 0.3)
+	Settings.haptic(50, 0.5)
 
 
 func _physics_process(dt: float) -> void:

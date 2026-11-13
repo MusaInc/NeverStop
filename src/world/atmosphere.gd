@@ -54,7 +54,6 @@ var _flash := 0.0
 var _next_bolt := 8.0
 var _weather_left := 240.0
 var _rng := RandomNumberGenerator.new()
-var _sky_t := 0.0
 var _world: Node
 
 
@@ -289,11 +288,9 @@ func _apply(dt: float, instant: bool) -> void:
 	haze = haze.lerp(grey_c, overcast * 0.85)
 	zen = zen.lerp(Color(0.8, 0.85, 1.0), fl * 0.6)
 	hor = hor.lerp(Color(0.8, 0.85, 1.0), fl * 0.6)
-	# The sky shader is radiance-mapped: update it a few times a second, not
-	# every frame (it changes slowly), except for lightning.
-	_sky_t -= dt
-	if _sky_t <= 0.0 or instant or fl > 0.0:
-		_sky_t = 0.25
+	# Every frame: the sky already redraws each frame (its clouds use TIME),
+	# and colours stepped 4x a second read as a juddering sky at dusk.
+	if true:
 		sky_mat.set_shader_parameter("zenith", zen)
 		sky_mat.set_shader_parameter("horizon", hor)
 		sky_mat.set_shader_parameter("haze", haze)

@@ -138,32 +138,58 @@ func _on_screen(p: Vector3) -> bool:
 	return get_world_3d().direct_space_state.intersect_ray(_ray).is_empty()
 
 
-## Position along the path at index-distance i (3 m per point), at `y` lift.
+## A point on the path at index-distance f (3 m per point), interpolated.
+static func _at(path: PackedVector3Array, f: float) -> Vector3:
+	var k := clampi(int(floor(f)), 0, path.size() - 2)
+	return path[k].lerp(path[k + 1], clampf(f - k, 0.0, 1.0))
+
+
+## Places the car like a real one following its lane: the rear axle rides on
+## the path at i, the nose points at the path one wheelbase ahead (so a bus
+## swings wide and its tail cuts in, instead of pivoting on its middle and
+## skating sideways), the front wheels steer into the bend, and the body
+## leans out a little with the cornering load. Everything is interpolated
+## continuously, so the heading no longer steps at each 3 m path point.
 func _pose(c: Dictionary, dt: float) -> void:
 	var path: PackedVector3Array = c["path"]
 	var car: Car = c["car"]
 	if path.size() < 2:
 		return
 	var f: float = c["i"]
-	var k := clampi(int(f), 0, path.size() - 2)
-	var a := path[k]
-	var b := path[k + 1]
-	var p := a.lerp(b, clampf(f - k, 0.0, 1.0))
-	var k2 := clampi(k + 2, 0, path.size() - 1)
-	var dir := path[k2] - path[maxi(k - 1, 0)]
-	if dir.length() < 0.01:
+	var wb: float = float(car.spec.get("wheelbase", 2.7))
+	var fi := f + wb / RoadNet.STEP
+	var rear := _at(path, f)
+	var front := _at(path, fi)
+	var dir := front - rear
+	if dir.length() < 0.05:
 		return
 	dir = dir.normalized()
-	var right := Vector3(-dir.z, 0.0, dir.x).normalized()
-	p += right * float(c["offset"])
+	var flat := Vector3(dir.x, 0.0, dir.z).normalized()
+	var right := Vector3(-flat.z, 0.0, flat.x)
+	var off := right * float(c["offset"])
+	var p := (rear + front) * 0.5 + off
 	if jumps:
 		p.y = maxf(p.y, jumps.height_at(p))
+	# Steering: the angle between the body and the lane under the front axle.
+	var tan := _at(path, fi + 0.6) - _at(path, fi - 0.6)
+	tan.y = 0.0
+	var steer := 0.0
+	if tan.length() > 0.01:
+		steer = -flat.signed_angle_to(tan.normalized(), Vector3.UP)
+	steer = clampf(steer * 1.3, -0.62, 0.62)
+	var k := 1.0 if dt <= 0.0 else 1.0 - exp(-10.0 * dt)
+	car.steer_angle = lerpf(car.steer_angle, steer, k)
+	# Body roll: lateral g ~ v² · tan(steer) / wheelbase, leaning out of the turn.
+	var v: float = c["v"]
+	var lat := v * v * tan(car.steer_angle) / maxf(wb, 1.0)
+	var roll_to := clampf(lat * 0.006, -0.07, 0.07)
+	c["roll"] = lerpf(float(c.get("roll", 0.0)), roll_to, 1.0 - exp(-4.0 * maxf(dt, 0.0)) if dt > 0.0 else 1.0)
 	var basis := Basis.looking_at(dir, Vector3.UP)
+	basis = Basis(dir, -float(c["roll"])) * basis
 	var xf := Transform3D(basis, p + Vector3.UP * 0.02)
 	if dt > 0.0:
 		car.linear_velocity = (xf.origin - car.global_position) / dt
 	car.global_transform = xf
-	var v: float = c["v"]
 	car.forward_speed = v
 	car.speed = v
 	var wr: float = car.spec["wheel_r"]

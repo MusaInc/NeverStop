@@ -1,3 +1,44 @@
+# Status: 2026-11-13 (1.0.0, TestFlight)
+
+## Feedback pass (from playing 0.5.0)
+
+- **Camera fits the vehicle** (`ChaseCamera.size_fit`): distance, lens height, look-ahead and
+  look-at height come from the body's real length and roof height (a touch of extra FOV for big
+  ones). Normal cars keep the old framing; the Mammoth now sits ~3 m further back and ~5 m up, so
+  the road ahead shows over the box instead of the box filling the screen. Test:
+  `test_systems.test_camera_fits_the_vehicle`.
+- **Headlights: the two dark circles are gone.** They were the visible "air beams" (two
+  additive cones, one per lamp): from the chase camera each cone's dim tip read as a dark hole in
+  the lit road. The beams (and `head_beam.gdshader`) are removed. Now: one main spot (42°, 75 m,
+  softer edge) plus a wide, short, dim spill spot so the kerbs either side of the nose are lit.
+- **Choppy clouds**: they drifted at 0.004 uv/s, under a pixel per frame, so 8-bit output stepped
+  them about once a second. They drift ~6x faster now with a faster cross-flow detail layer
+  (billowing instead of one sliding sheet), crisper edges, and the sky colours update every frame
+  (they were set 4x a second, a visible judder at dusk with the day cycle on).
+- **Civilian cars turn like cars** (`CivilianTraffic._pose`): the rear axle follows the lane and
+  the nose points at the lane a wheelbase ahead (buses swing wide and their tails cut in), the
+  front wheels steer into the bend, the body leans out a little, and it's all interpolated, so the
+  heading no longer snaps at every 3 m path point. (They used to pivot on their middle with a
+  heading that stepped and static front wheels.)
+- **Road markings** (ground shader, from the road field: ring = hw 11, boulevards hw 13):
+  - the coastal ring is an expressway: darker fresh surface, a hatched central reservation
+    between solid lines, solid edge lines with a hard shoulder, long lane dashes;
+  - boulevards: red bus lanes along the kerb on some stretches (solid line beside them);
+  - streets: green cycle lanes on some, dashed give-way double lines at their junction mouths
+    (boulevards and the ring keep solid stop lines);
+  - big junctions get a criss-cross yellow box.
+- **Exploring the middle of the city**:
+  - **Cash drops** (`RepairPickups` with `kind = "cash"`): 4-9 gold coins on beacons, +600 points
+    (chained) and +$120 each (added to the run's cash, `last_result.drop_cash`), gold dots on the
+    minimap, always replaced somewhere new.
+  - Repair stations and cash drops are placed by lane type: streets x1.6, boulevards x0.9, the
+    coastal ring x0.12, never in junctions. (Weighting by length alone put lots of them on the
+    long ring road, which pulled you round the edge.)
+
+Not done (bigger jobs, worth doing next): real highways with on/off ramps and interchanges,
+elevated sections, more roundabout types (they're all one style), and a hand-made cross-city
+route with a reason to take it (e.g. a downtown score multiplier).
+
 # Status: 2026-11-12 (1.0.0, release candidate)
 
 ## Completion pass for App Store submission

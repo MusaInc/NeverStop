@@ -73,9 +73,15 @@ void sky() {
 	}
 	if (h > 0.0) {
 		vec2 uv = d.xz / (h + 0.12) * 1.4;
-		uv += vec2(TIME * 0.004, TIME * 0.002) * (1.0 + 2.0 * cloud_dark);
-		float c = fbm(uv);
-		float cov = smoothstep(1.0 - cloud_cover, 1.0 - cloud_cover + 0.35, c) * smoothstep(0.0, 0.18, h);
+		// Wind. Fast enough that edges move several pixels a second: at the
+		// old 0.004 they crept under a pixel per frame, and 8-bit output
+		// turned that into a one-step-a-second judder. The detail octaves
+		// drift a little faster and across the main flow, so the clouds
+		// billow as they pass instead of sliding as one sheet.
+		float wind = 1.0 + 1.5 * cloud_dark;
+		vec2 flow = vec2(0.026, 0.012) * wind * TIME;
+		float c = fbm(uv + flow) * 0.78 + vnoise((uv + flow * 1.6 + vec2(0.0, flow.x * 0.5)) * 4.1) * 0.22;
+		float cov = smoothstep(1.0 - cloud_cover, 1.0 - cloud_cover + 0.28, c) * smoothstep(0.0, 0.18, h);
 		vec3 cc = mix(cloud_shade, cloud_lit, clamp(0.4 + pow(sd, 2.0) * sun_glow + (c - 0.5), 0.0, 1.0));
 		cc *= 1.0 - cloud_dark * 0.45 * smoothstep(0.3, 0.8, c);
 		cov = clamp(cov * (1.0 + cloud_dark), 0.0, 1.0);

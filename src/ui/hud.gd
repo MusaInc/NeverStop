@@ -17,6 +17,7 @@ var minimap: Minimap
 var contracts: Contracts
 var kit: BattleKit
 var repairs: RepairPickups
+var cash_drops: RepairPickups
 var arena: Arena                 # set during a battle (Sky Arena / Rooftop Rumble)
 var touch_mode := false
 ## First-run coach: one prompt at a time until the player has done it.
@@ -216,6 +217,9 @@ func _process(dt: float) -> void:
 				var near := repairs.nearest(player.global_position)
 				for rp in repairs.positions():
 					ms.append([rp, "repair_pin" if rp == near else "repair"])
+			if cash_drops and cash_drops.active:
+				for cp in cash_drops.positions():
+					ms.append([cp, "cash"])
 			minimap.markers = ms
 	for e in _events:
 		e[3] += dt

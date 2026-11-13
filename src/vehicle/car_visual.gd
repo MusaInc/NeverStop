@@ -12,14 +12,11 @@ const BEACON_SHADER := preload("res://src/vehicle/beacon.gdshader")
 const PAINT_SHADER := preload("res://src/vehicle/car_paint.gdshader")
 const GLASS_SHADER := preload("res://src/vehicle/car_glass.gdshader")
 const FLARE_SHADER := preload("res://src/vehicle/lamp_flare.gdshader")
-const BEAM_SHADER := preload("res://src/vehicle/head_beam.gdshader")
-const BEAM_LEN := 20.0
 
 static var _mesh_cache := {}
 static var _mat_cache := {}
 static var _lamp_cache := {}
 static var _flare_mat: ShaderMaterial
-static var _beam_mat: ShaderMaterial
 ## 0 day .. 1 night (street lamps on). Set by Atmosphere every frame.
 static var lamps := 0.0
 
@@ -30,7 +27,6 @@ var _spins: Array[Node3D] = []      # spin nodes under them
 var paint_mat: ShaderMaterial
 var flares: MeshInstance3D
 var head_lights: Array[SpotLight3D] = []
-var beams: Array[MeshInstance3D] = []
 var lamp_pos := {}                  # "head"/"tail" -> Array[Vector3] (local, one per side)
 var tail_mat: StandardMaterial3D
 var head_mat: StandardMaterial3D
@@ -318,59 +314,50 @@ func _make_flares() -> void:
 	add_child(flares)
 
 
-## Real headlights (the player's car): two spotlights that light the road
-## ahead at night, plus a faint visible beam in the air. Off by day.
-func enable_headlights(shadows := false) -> void:
+## Real headlights (the player's car), night only:
+##  * a main beam: one spotlight just ahead of the bumper, dipped a little,
+##    a broad soft-edged pool reaching ~75 m;
+##  * a soft near spill: a wide, short, dim spot so the kerbs and lane
+##    edges either side of the nose are lit, not just a cone ahead.
+## One spot per job, never one per lamp: lamps inside their housings
+## shadowed their own light (two dark discs on the road). The old visible
+## air "beams" are gone too: seen from the chase camera their dim tips left
+## two dark holes in the lit road.
+
+func enable_headlights(_shadows := false) -> void:
 	if not head_lights.is_empty() or lamp_pos["head"].is_empty():
 		return
-	if _beam_mat == null:
-		_beam_mat = ShaderMaterial.new()
-		_beam_mat.shader = BEAM_SHADER
-		_beam_mat.set_shader_parameter("height", BEAM_LEN)
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.12
-	cone.bottom_radius = 3.2
-	cone.height = BEAM_LEN
-	cone.radial_segments = 16
-	cone.rings = 1
-	cone.cap_top = false
-	cone.cap_bottom = false
-	# One soft, wide pool of light from just ahead of the bumper. (Two lamps
-	# each had their own spotlight inside the lamp housing: the housing
-	# shadowed its own light, leaving two dark discs on the road.)
 	var heads: Array = lamp_pos["head"]
 	var mid := Vector3.ZERO
 	for p: Vector3 in heads:
 		mid += p
 	mid /= float(heads.size())
-	var l := SpotLight3D.new()
-	l.name = "Headlight"
-	l.light_color = Color(1.0, 0.95, 0.86)
-	l.spot_range = 80.0
-	l.spot_angle = 38.0
-	l.spot_angle_attenuation = 0.6
-	l.spot_attenuation = 0.8
-	l.light_energy = 0.0
-	l.light_specular = 0.4
-	l.shadow_enabled = false
-	l.position = Vector3(0.0, mid.y + 0.15, mid.z - 0.9)
-	l.rotation = Vector3(deg_to_rad(-6.0), 0.0, 0.0)
-	l.visible = false
-	add_child(l)
-	head_lights.append(l)
-	for p: Vector3 in heads:
-		var bm := MeshInstance3D.new()
-		bm.name = "Beam"
-		bm.mesh = cone
-		bm.material_override = _beam_mat
-		bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		# Narrow end at the lamp, opening forward, flattened (stays off the road).
-		bm.transform = Transform3D(Basis(Vector3.RIGHT, PI * 0.5).scaled(Vector3(1.0, 1.0, 0.22)),
-			p + Vector3(0, 0, -BEAM_LEN * 0.5 - 0.1))
-		bm.rotation.y = -signf(p.x) * deg_to_rad(3.0)
-		bm.visible = false
-		add_child(bm)
-		beams.append(bm)
+	var main := SpotLight3D.new()
+	main.name = "Headlight"
+	main.light_color = Color(1.0, 0.95, 0.86)
+	main.spot_range = 75.0
+	main.spot_angle = 42.0
+	main.spot_angle_attenuation = 0.35
+	main.spot_attenuation = 0.65
+	main.light_specular = 0.35
+	main.position = Vector3(0.0, mid.y + 0.12, mid.z - 0.8)
+	main.rotation = Vector3(deg_to_rad(-4.5), 0.0, 0.0)
+	var spill := SpotLight3D.new()
+	spill.name = "HeadSpill"
+	spill.light_color = Color(1.0, 0.94, 0.84)
+	spill.spot_range = 16.0
+	spill.spot_angle = 68.0
+	spill.spot_angle_attenuation = 1.6
+	spill.spot_attenuation = 1.2
+	spill.light_specular = 0.15
+	spill.position = Vector3(0.0, mid.y + 0.25, mid.z - 0.6)
+	spill.rotation = Vector3(deg_to_rad(-22.0), 0.0, 0.0)
+	for l: SpotLight3D in [main, spill]:
+		l.light_energy = 0.0
+		l.shadow_enabled = false
+		l.visible = false
+		add_child(l)
+		head_lights.append(l)
 
 
 func set_siren(on: bool) -> void:
@@ -419,11 +406,10 @@ func _process(dt: float) -> void:
 	head_mat.emission_energy_multiplier = 1.2 + lamps * 5.0
 	if not head_lights.is_empty():
 		var on := lamps > 0.05 and not car.disabled
-		for l in head_lights:
-			l.visible = on
-			l.light_energy = 14.0 * lamps
-		for b in beams:
-			b.visible = on
+		head_lights[0].visible = on
+		head_lights[0].light_energy = 18.0 * lamps
+		head_lights[1].visible = on
+		head_lights[1].light_energy = 3.0 * lamps
 	if beacon_light_a and beacon_light_a.visible:
 		var ph := fmod(_t * 2.6, 1.0)
 		var a := 1.0 if ph < 0.5 else 0.0

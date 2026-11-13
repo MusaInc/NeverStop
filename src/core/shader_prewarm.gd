@@ -13,7 +13,6 @@ signal done
 
 const SHADERS := [
 	"res://src/vehicle/beacon.gdshader",
-	"res://src/vehicle/head_beam.gdshader",
 	"res://src/vehicle/car_glass.gdshader",
 	"res://src/vehicle/lamp_flare.gdshader",
 	"res://src/vehicle/car_paint.gdshader",
