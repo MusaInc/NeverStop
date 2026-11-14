@@ -670,6 +670,43 @@ func test_9c_battle_arenas() -> void:
 	check(game.director.active, "police back after a battle")
 
 
+## Harbour Point: the Harbour Wheel's pier is reached from the esplanade
+## along its walkway (nothing on the way stops a car), and Westbank's coast
+## has sea walls (its quay and shore edges were once left bare).
+func test_9e_harbour_wheel_pier_and_westbank_edges() -> void:
+	await _start(1, false)
+	game.director.active = false
+	var hp: HarbourPoint = game.layout.harbour
+	check(hp != null, "Harbour Point is laid out")
+	if hp == null:
+		game.director.active = true
+		return
+	var top := hp.base_y + 1.0
+	var pier := Vector3(hp.wheel_c.x, top, hp.wheel_c.z)
+	var d3 := Vector3(hp.dir.x, 0.0, hp.dir.y)
+	var from := Vector3(hp.wheel_c.x, hp.base_y + 0.6, hp.base.y) - d3 * 14.0
+	game.input.enabled = false
+	game.player.place(Transform3D(Basis.looking_at(d3, Vector3.UP), from), d3 * 8.0)
+	var best := INF
+	for i in 60 * 6:
+		var to_pier: Vector2 = Vector2(pier.x - game.player.global_position.x, pier.z - game.player.global_position.z)
+		game.player.throttle = 0.5 if to_pier.dot(hp.dir) > 4.0 else 0.0
+		game.player.brake = 0.0 if to_pier.dot(hp.dir) > 4.0 else 1.0
+		await get_tree().physics_frame
+		best = minf(best, to_pier.length())
+	var p: Vector3 = game.player.global_position
+	note("walkway: closest %.1f m to the pier centre, car at %s (pier top %.1f), %.0f km/h" % [best, str(p.snapped(Vector3.ONE * 0.1)), top, game.player.speed * 3.6])
+	check(best < 9.0, "a car drives along the walkway onto the wheel's pier")
+	check(absf(p.y - top) < 1.5, "and is up on the pier, not in the sea")
+	game.player.throttle = 0.0
+	game.player.brake = 0.0
+	game.input.enabled = true
+	# Westbank: sea walls round its coast as well as the island's.
+	var ml: CityLayout = game.layout.mainland
+	check(ml != null and BuildingMesher.coast_edges(ml.coast).size() > ml.coast.size() - 3, "Westbank's coast has sea walls")
+	game.director.active = true
+
+
 ## The title: every control is on screen (inside the safe area), a mode card
 ## picks what PLAY starts, and the attract camera frames the car off-centre.
 func test_9d_title_screen() -> void:

@@ -80,8 +80,10 @@ shipped, rendered on the build server), with a headline band added.
 
 ## App icon
 
-`assets/icon_1024.png`, drawn in code (`src/ui/icon_art.gd`) and baked by
-`tools/make_splash.sh`. The iOS export makes every other size from it.
+`assets/icon_1024.png`, made from the artwork `assets/brand/icon_source.jpg`
+(`convert assets/brand/icon_source.jpg -resize 1024x1024 -alpha off PNG24:assets/icon_1024.png`,
+plus a 256 px `assets/icon.png` for the web build). Opaque RGB, no alpha.
+The iOS export makes every other size from it.
 
 ## Before you press Submit (checklist)
 

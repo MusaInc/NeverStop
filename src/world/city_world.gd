@@ -660,6 +660,10 @@ func _build_collision() -> void:
 	if not layout.is_mainland:
 		_add_box(street, AABB(Vector3(CityLayout.RIVER_EDGE, -4.0, layout.island.position.y),
 			Vector3(0.6, 5.1, layout.island.size.y)))
+	else:  # (Westbank's, on its east edge)
+		var qz := BuildingMesher.strait_quay_z(layout.coast)
+		if qz.y > qz.x:
+			_add_box(street, AABB(Vector3(CityLayout.FAR_SHORE - 0.6, -4.0, qz.x), Vector3(0.6, 5.1, qz.y - qz.x)))
 	add_child(street)
 	var water_floor := StaticBody3D.new()
 	water_floor.name = "WaterFloor"

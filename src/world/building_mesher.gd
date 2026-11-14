@@ -1640,6 +1640,16 @@ func add_ground(layout: CityLayout, chunk_rect: Rect2) -> void:
 			quad(Vector3(x, 0.0, z0), Vector3(x, 0.0, z1), Vector3(x, -4.0, z1), Vector3(x, -4.0, z0), Vector3.LEFT,
 				Vector2(z0, 0), Vector2(z1, 0), Vector2(z1, -4), Vector2(z0, -4), Color(0.45, 0.4, 0.34), KIND_WALL, 5, 0.3)
 			solid(x, z0, x + 0.6, z1, 0.0, 1.1, Color(0.3, 0.32, 0.33))
+	# Westbank's strait quay wall (its east edge), the island's mirror image.
+	if layout.is_mainland and chunk_rect.position.x < CityLayout.FAR_SHORE and chunk_rect.end.x >= CityLayout.FAR_SHORE:
+		var qz := strait_quay_z(layout.coast)
+		var z0 := maxf(chunk_rect.position.y, qz.x)
+		var z1 := minf(chunk_rect.end.y, qz.y)
+		if z1 > z0:
+			var x := CityLayout.FAR_SHORE
+			_vface(Vector3(x, 0.0, z0), Vector3(x, 0.0, z1), Vector3(x, -4.0, z1), Vector3(x, -4.0, z0), Vector3.RIGHT,
+				Color(0.45, 0.4, 0.34), KIND_WALL)
+			solid(x - 0.6, z0, x, z1, 0.0, 1.1, Color(0.3, 0.32, 0.33))
 
 
 ## A ground surface over polygons (minus holes), following height(x, z):
@@ -1807,16 +1817,32 @@ const RAIL_H := 1.1           # m: esplanade railing
 const RAIL_T := 0.5
 
 
-## The coast's edges (not the straight strait quay in the west), each as
-## [a, b, outward normal (2-D)], in order round from the north-west corner.
+## Westbank's straight strait quay: its z extent (x min, y max).
+static func strait_quay_z(coast: PackedVector2Array) -> Vector2:
+	var r := Vector2(INF, -INF)
+	for p in coast:
+		if p.x > CityLayout.FAR_SHORE - 0.5:
+			r = Vector2(minf(r.x, p.y), maxf(r.y, p.y))
+	return r if r.x < r.y else Vector2.ZERO
+
+
+## The coast's edges (not the straight strait quay, which has its own wall),
+## each as [a, b, outward normal (2-D)], in order round from the north-west
+## corner. Works for both shores: the island's quay is its west edge at
+## RIVER_EDGE; Westbank (the mainland, wholly west of the strait) has its
+## quay as its east edge at FAR_SHORE.
 static func coast_edges(coast: PackedVector2Array) -> Array:
 	var n := coast.size()
 	var out: Array = []
+	var mainland := n > 0 and CityLayout._bbox(coast).end.x < CityLayout.FAR_SHORE + 1.0
 	for i in n:
 		var a := coast[i]
 		var b := coast[(i + 1) % n]
-		if a.x < CityLayout.RIVER_EDGE + 0.5 and b.x < CityLayout.RIVER_EDGE + 0.5:
-			continue  # the strait quay
+		if mainland:
+			if a.x > CityLayout.FAR_SHORE - 0.5 and b.x > CityLayout.FAR_SHORE - 0.5:
+				continue  # Westbank's strait quay
+		elif a.x < CityLayout.RIVER_EDGE + 0.5 and b.x < CityLayout.RIVER_EDGE + 0.5:
+			continue  # the island's strait quay
 		var d := (b - a).normalized()
 		var o := Vector2(d.y, -d.x)
 		if Geometry2D.is_point_in_polygon((a + b) * 0.5 + o * 0.5, coast):
@@ -1851,6 +1877,8 @@ func _coast(layout: CityLayout, clip: Rect2) -> void:
 			var P1 := Vector3(p.x, SEA_WALL_LOW, p.y)
 			var Q1 := Vector3(q.x, SEA_WALL_LOW, q.y)
 			_vface(P0, Q0, Q1, P1, n3, face, KIND_WALL)
+			if layout.harbour and (layout.harbour.rail_gap(p) or layout.harbour.rail_gap(q)):
+				continue  # (open where Harbour Point's bridge and wheel walkway leave)
 			# Railing: a low stone wall just inside the edge, riding the slope.
 			var pi := p - o * RAIL_T
 			var qi := q - o * RAIL_T

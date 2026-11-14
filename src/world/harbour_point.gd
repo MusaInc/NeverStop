@@ -360,6 +360,14 @@ func _wheel_pier(k: Dictionary) -> void:
 		L._kbeam(k, b3 + Vector3(sg * 3.4, 1.0, 0.0), Vector3(wp.x + sg * 3.4, top + 1.0, wp.y - hz), 0.3, 0.9, WHITE)
 
 
+## Openings in the sea wall's railing (and the balustrade): the bridge's
+## roadway and the wheel's walkway leave the esplanade here.
+func rail_gap(p: Vector2) -> bool:
+	if absf(p.y - base.y) > 12.0:
+		return false
+	return absf(p.x - base.x) < HALF + 2.0 or absf(p.x - wheel_c.x) < 5.0
+
+
 ## A stone balustrade along the south sea wall with lamps, open at the
 ## bridge and in front of the wheel's walkway.
 func _promenade(k: Dictionary) -> void:
@@ -372,7 +380,7 @@ func _promenade(k: Dictionary) -> void:
 		if n.y < 0.7 or p.x < BASE_X - 190.0 or p.x > BASE_X + 210.0:
 			prev = null
 			continue
-		var gap := absf(p.x - base.x) < HALF + 2.0 or absf(p.x - wheel_c.x) < 5.0
+		var gap := rail_gap(p)
 		var y := L.terrain.road_y(p.x, p.y) + CityTerrain.KERB
 		var q := p - n * 0.6
 		var cur := Vector3(q.x, y, q.y)

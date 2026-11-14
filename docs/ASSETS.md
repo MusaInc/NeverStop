@@ -9,7 +9,8 @@ Everything in the game is original to Musa Studios except the font.
 | Sounds and music (`assets/audio/*.wav`) | `tools/audio/gen_sounds.py`, synthesised with numpy | Musa Studios own work |
 | `assets/audio/city_ambience.wav` | CitySwing's synthesised ambience (`gen_audio.py`) | Musa Studios own work |
 | Outfit font (`assets/fonts/`) | Google Fonts | SIL Open Font License 1.1 (`assets/fonts/OFL-Outfit.txt`) |
-| App icon (`assets/icon_1024.png`), splash (`assets/ui/splash.png`) | Drawn in code (`src/ui/icon_art.gd`, `src/ui/splash_art.gd`), baked by `tools/make_splash.sh` | Musa Studios own work |
+| App icon (`assets/icon_1024.png`, `assets/icon.png`) | Resized from `assets/brand/icon_source.jpg` (supplied artwork, 2026-11-13) | Musa Studios |
+| Splash (`assets/ui/splash.png`) | Drawn in code (`src/ui/splash_art.gd`), baked by `tools/make_splash.sh` | Musa Studios own work |
 | Billboard brands (`assets/ads/`) | Fictional brands drawn for CitySwing | Musa Studios own work |
 
 No third-party code, samples, textures or models. No analytics, ads, tracking
