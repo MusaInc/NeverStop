@@ -370,6 +370,11 @@ const SEG_CELL := 32.0
 const BAND := 9.0       # m past the kerb the field reaches
 
 
+## LCS uses the main thread during loading to avoid a Godot 4.5 worker-path crash.
+## Existing modes retain their original parallel bake by default.
+static var parallel_field_bake := true
+
+
 func bake_field(cell := 1.5) -> void:
 	field_cell = cell
 	field_rect = Rect2(bounds.position - Vector2(10, 10), bounds.size + Vector2(20, 20))
@@ -390,8 +395,12 @@ func bake_field(cell := 1.5) -> void:
 	var stripes := ceili(field_h / 16.0)
 	_stripe_out.clear()
 	_stripe_out.resize(stripes)
-	var task := WorkerThreadPool.add_group_task(_bake_stripe, stripes, -1, true)
-	WorkerThreadPool.wait_for_group_task_completion(task)
+	if parallel_field_bake:
+		var task := WorkerThreadPool.add_group_task(_bake_stripe, stripes, -1, true)
+		WorkerThreadPool.wait_for_group_task_completion(task)
+	else:
+		for stripe in stripes:
+			_bake_stripe(stripe)
 	field = PackedFloat32Array()
 	for st in _stripe_out:
 		field.append_array(st)

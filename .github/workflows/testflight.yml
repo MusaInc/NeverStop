@@ -19,7 +19,7 @@ on:
     inputs:
       version:
         description: "Marketing version (CFBundleShortVersionString)"
-        default: "1.1.0"
+        default: "1.2.0"
       fix_build:
         description: "Only make an existing build testable (build number, e.g. 33) – skips building"
         default: ""
@@ -283,7 +283,7 @@ jobs:
           PY
 
       - name: Make the build testable in TestFlight
-        # Answers export compliance (the game has no networking or crypto) and
+        # Answers export compliance (the game uses no non-exempt encryption) and
         # adds the build to every internal tester group, then prints what
         # TestFlight reports for it. Without the compliance answer the build
         # sits in "Missing Compliance" and testers cannot install it.

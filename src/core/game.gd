@@ -14,7 +14,7 @@ extends Node3D
 ##   --time=<h> --weather=<w> --quality=0|1|2 --perf --touch --menu=<screen>
 ##   --save=<path>          scratch save file (never the player's)
 ##   --at=<x,z>             spawn on the lane nearest this point (captures)
-##   --mode=chase|sky|rooftops   game mode (battle arenas: see Arena)
+##   --mode=chase|sky|rooftops|lcs   game mode (LCS uses a separate online scene)
 
 enum State { MENU, PLAYING, PAUSED, BUSTED, GARAGE }
 
@@ -69,12 +69,15 @@ var mode := "chase"
 var arena: Arena
 var _held := false			 # battle countdown running
 var _arenas := {}              # mode -> built Arena (kept, detached when unused)
-const MODE_NAMES := {"chase": "Pursuit", "sky": "Sky Arena", "rooftops": "Rooftop Rumble"}
+const MODE_NAMES := {"lcs": "Last Car Standing", "chase": "Pursuit", "sky": "Sky Arena", "rooftops": "Rooftop Rumble"}
 ## Off in headless runs (no window, spurious focus events); tests turn it on.
 var autopause := DisplayServer.get_name() != "headless"
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--mode=lcs"):
+		get_tree().change_scene_to_file.call_deferred("res://scenes/last_car_standing.tscn")
+		return
 	for a in OS.get_cmdline_user_args():
 		var kv := a.trim_prefix("--").split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
@@ -450,8 +453,11 @@ func start_run() -> void:
 	state_changed.emit(state)
 
 
-## Title screen: start a run in a mode ("chase", "sky", "rooftops").
+## Title screen: start a run, or switch to the separate online LCS scene.
 func start_mode(m: String) -> void:
+	if m == "lcs":
+		get_tree().change_scene_to_file("res://scenes/last_car_standing.tscn")
+		return
 	if not MODE_NAMES.has(m):
 		return
 	mode = m

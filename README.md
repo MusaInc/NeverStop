@@ -42,3 +42,8 @@ never because one car touched you.
 NEVER STOP is a standalone project. Its city systems were copied from
 CitySwing (Musa Studios' own game) and adapted; there is no runtime dependency
 on the CitySwing directory and CitySwing was not modified.
+
+LAST CAR STANDING is a separate native online prototype, available from the title
+screen. It reuses the city and vehicles and supports 2–100 slots, authoritative
+ENet rooms, named bot fill, collision eliminations and a shrinking storm. See
+[setup, rules, tests and measured limitations](docs/LAST_CAR_STANDING.md).

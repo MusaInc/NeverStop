@@ -48,6 +48,7 @@ var traffic_density := 1.0
 var traffic: Traffic
 ## CitySwing's GPU-animated traffic has no collision: off in NEVER STOP
 ## (CivilianTraffic drives real cars instead).
+var competitive := false  # LCS: no ambient vehicles or pedestrians (propagated to both islands).
 var gpu_traffic := false
 ## Street furniture knocked down this session (Destructibles): item key ->
 ## true. Filtered out of chunk_props / chunk_furniture, so a chunk that
@@ -151,14 +152,15 @@ func _ready() -> void:
 		traffic.far_range = CAR_FAR
 		add_child(traffic)
 		traffic.setup(layout, car_meshes, car_far_meshes, traffic_density)
-	trains = Trains.new()
-	trains.name = "Trains"
-	add_child(trains)
-	trains.setup(layout.rail.lines, _load_mesh("train_car"), _load_mesh("train_cab"))
-	sea_sky = SeaAndSky.new()
-	sea_sky.name = "SeaAndSky"
-	add_child(sea_sky)
-	sea_sky.setup(layout)
+	if not competitive:
+		trains = Trains.new()
+		trains.name = "Trains"
+		add_child(trains)
+		trains.setup(layout.rail.lines, _load_mesh("train_car"), _load_mesh("train_cab"))
+		sea_sky = SeaAndSky.new()
+		sea_sky.name = "SeaAndSky"
+		add_child(sea_sky)
+		sea_sky.setup(layout)
 	_bake_street_maps()
 	if secondary:
 		print("Mainland: %d buildings, %d chunks, %d ms" % [layout.buildings.size(), _all_keys.size(),
@@ -172,6 +174,7 @@ func _ready() -> void:
 	mainland = CityWorld.new()
 	mainland.name = "Mainland"
 	mainland.secondary = true
+	mainland.competitive = competitive
 	# (The island's layout made Westbank's already: the railway crosses to it.)
 	mainland.layout = layout.mainland if layout.mainland else CityLayout.new().generate_mainland(layout.seed)
 	add_child(mainland)
@@ -1477,7 +1480,7 @@ func _pavement_paths() -> Array:
 
 
 func _add_walkers(root: Node3D, key: Vector2i) -> void:
-	if walker_mesh == null or traffic_density <= 0.0:
+	if competitive or walker_mesh == null or traffic_density <= 0.0:
 		return
 	var rect := Rect2(Vector2(key) * CHUNK, Vector2(CHUNK, CHUNK))
 	var rng := RandomNumberGenerator.new()
