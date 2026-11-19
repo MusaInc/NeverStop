@@ -18,7 +18,10 @@ void fragment() {
 	// Double flash per half-cycle: red in the first half, blue in the second.
 	float local = red ? t : fract(t + 0.5);
 	float f = (local < 0.5) ? step(0.0, sin(local * 6.2831 * 4.0)) : 0.0;
-	ALBEDO = base * (0.35 + 0.65 * f * on);
-	ROUGHNESS = 0.2;
-	EMISSION = base * 7.0 * f * on + base * 0.15;
+	// Off: tinted red / blue lenses you can see on a dark roof (they read
+	// as black before); on: double flashes.
+	ALBEDO = mix(base * 0.75 + vec3(0.06), base, f * on);
+	ROUGHNESS = 0.12;
+	SPECULAR = 0.8;
+	EMISSION = base * 7.0 * f * on + base * 0.35;
 }

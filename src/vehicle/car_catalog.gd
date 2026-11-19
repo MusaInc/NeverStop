@@ -29,7 +29,7 @@ const BASE := {
 	"yaw_assist": 0.35, "drift_assist": 0.55, "drift_hold": 30.0, "drift_max": 44.0, "drift_push": 1.6,
 	"drag": 0.00028, "downforce": 0.01, "air_level": 3.5,
 	"durability": 1.0, "drive": "rwd", "nitro": 0.0, "nitro_time": 4.0,
-	"body": "marlin", "wheel": "five", "paint": Color(0.7, 0.7, 0.7),
+	"body": "marlin", "wheel": "multi", "paint": Color(0.7, 0.7, 0.7),
 	"price": 0, "class": "Street",
 	# Perks (1.0 = none): damage dealt to cars you hit, score multipliers, etc.
 	"ram": 1.0, "score_drift": 1.0, "score_air": 1.0, "score_speed": 1.0, "score_near": 1.0,
@@ -39,7 +39,7 @@ const BASE := {
 
 const CARS := {
 	"kestrel": {
-		"name": "Kestrel", "class": "Street Hatch", "price": 0, "body": "kestrel", "wheel": "steel", "engine_sound": "i4",
+		"name": "Kestrel", "class": "Street Hatch", "price": 0, "body": "kestrel", "wheel": "kestrel", "engine_sound": "i4",
 		"blurb": "Everybody's first car. Grippy, honest, not very fast.",
 		"perk": "PATCH-UP · slowly repairs itself between hits",
 		"mass": 1150.0, "engine": 6.2, "top_speed": 50.0, "grip": 1.4, "grip_front": 1.05, "grip_rear": 1.08, "drive": "fwd",
@@ -47,14 +47,14 @@ const CARS := {
 		"repair": 0.012, "caps": {"engine": 3, "grip": 3, "armour": 3, "nitro": 3}, "up_cost": 0.8,
 	},
 	"marlin": {
-		"name": "Marlin GT", "class": "Sport Saloon", "price": 2500, "body": "marlin", "wheel": "five", "engine_sound": "v6",
+		"name": "Marlin GT", "class": "Sport Saloon", "price": 2500, "body": "marlin", "wheel": "multi", "engine_sound": "v6",
 		"blurb": "Four doors, six cylinders, rear-wheel drive. The all-rounder.",
 		"perk": "SMOOTH OPERATOR · near misses pay 1.5×",
 		"mass": 1480.0, "engine": 7.4, "top_speed": 59.0, "grip": 1.42, "drive": "rwd", "durability": 1.05,
 		"paint": Color(0.1, 0.22, 0.48), "score_near": 1.5, "caps": {"engine": 4, "grip": 4, "armour": 3, "nitro": 3},
 	},
 	"scout": {
-		"name": "Scout RS", "class": "Rally Hatch", "price": 5000, "body": "scout", "wheel": "turbine", "engine_sound": "f6",
+		"name": "Scout RS", "class": "Rally Hatch", "price": 5000, "body": "scout", "wheel": "rally", "engine_sound": "f6",
 		"blurb": "Long-travel suspension, all-wheel drive and a roof scoop. Built for the air.",
 		"perk": "BIG AIR · jumps pay 2×, extra air control",
 		"mass": 1260.0, "engine": 7.7, "top_speed": 58.0, "grip": 1.46, "drive": "awd", "susp_len": 0.4,
@@ -63,7 +63,7 @@ const CARS := {
 		"score_air": 2.0, "caps": {"engine": 4, "grip": 5, "armour": 3, "nitro": 4},
 	},
 	"brute": {
-		"name": "Brute 8", "class": "Muscle", "price": 7500, "body": "brute", "wheel": "deep", "engine_sound": "v8",
+		"name": "Brute 8", "class": "Muscle", "price": 7500, "body": "brute", "wheel": "dish", "engine_sound": "v8",
 		"blurb": "A V8 with a car attached. Huge torque, loose tail, heavy hitter.",
 		"perk": "SMOKE SHOW · drifts pay 1.6×",
 		"mass": 1720.0, "engine": 8.6, "top_speed": 62.0, "grip": 1.36, "grip_rear": 0.93, "slide": 0.86, "hb_grip": 0.48,
@@ -72,7 +72,7 @@ const CARS := {
 		"score_drift": 1.6, "caps": {"engine": 5, "grip": 3, "armour": 4, "nitro": 4},
 	},
 	"vanta": {
-		"name": "Vanta S", "class": "Sports Coupé", "price": 12000, "body": "vanta", "wheel": "blade", "engine_sound": "f6",
+		"name": "Vanta S", "class": "Sports Coupé", "price": 12000, "body": "vanta", "wheel": "y5", "engine_sound": "f6",
 		"blurb": "Light, sharp and eager. Turns in like it reads your mind.",
 		"perk": "IN THE ZONE · combo window lasts 1.5 s longer",
 		"mass": 1290.0, "engine": 8.4, "top_speed": 67.0, "grip": 1.55, "drive": "rwd", "steer_lock": 35.0, "steer_fast": 8.5,
@@ -99,7 +99,7 @@ const CARS := {
 		"caps": {"engine": 3, "grip": 3, "armour": 5, "nitro": 3}, "up_cost": 1.2,
 	},
 	"halcyon": {
-		"name": "Halcyon R", "class": "Supercar", "price": 25000, "body": "halcyon", "wheel": "mesh", "engine_sound": "v10",
+		"name": "Halcyon R", "class": "Supercar", "price": 25000, "body": "halcyon", "wheel": "center", "engine_sound": "v10",
 		"blurb": "Mid-engined, all-wheel drive, faster than the radio can report.",
 		"perk": "LAUNCH CONTROL · nitro recharges 2.5× faster",
 		"mass": 1420.0, "engine": 9.6, "top_speed": 76.0, "grip": 1.62, "drive": "awd", "steer_fast": 7.0, "downforce": 0.02,
@@ -117,7 +117,7 @@ const CARS := {
 		"caps": {"engine": 5, "grip": 3, "armour": 5, "nitro": 2}, "up_cost": 1.3,
 	},
 	"stiletto": {
-		"name": "Stiletto", "class": "Hypercar", "price": 45000, "body": "stiletto", "wheel": "blade", "engine_sound": "v10",
+		"name": "Stiletto", "class": "Hypercar", "price": 45000, "body": "stiletto", "wheel": "center", "engine_sound": "v10",
 		"blurb": "A carbon wedge with a V12 behind your head. Nothing in the city catches it - if you keep it off the walls.",
 		"perk": "FLAT OUT · speed points pay 2×, bigger nitro tank",
 		"mass": 1380.0, "engine": 10.4, "top_speed": 81.0, "grip": 1.68, "drive": "awd", "steer_fast": 7.2,
@@ -134,7 +134,7 @@ const POLICE := {
 		"mass": 1520.0, "engine": 7.0, "top_speed": 54.0, "grip": 1.36, "drive": "rwd", "durability": 1.1, "engine_sound": "v6",
 	},
 	"interceptor": {
-		"name": "Interceptor", "body": "police_interceptor", "wheel": "blade", "livery": [Color(0.04, 0.045, 0.05), Color(0.75, 0.95, 0.15)],
+		"name": "Interceptor", "body": "police_interceptor", "wheel": "y5", "livery": [Color(0.04, 0.045, 0.05), Color(0.75, 0.95, 0.15)],
 		"mass": 1350.0, "engine": 8.6, "top_speed": 68.0, "grip": 1.5, "drive": "rwd", "durability": 1.0, "com_y": 0.36,
 		"engine_sound": "f6",
 	},

@@ -62,9 +62,10 @@ static func shared_mat(name: String) -> Material:
 	if _mat_cache.has(name):
 		return _mat_cache[name]
 	var m := StandardMaterial3D.new()
-	if name == "glass":
+	if name == "glass" or name == "glass_clear":
 		var g := ShaderMaterial.new()
-		g.shader = GLASS_SHADER
+		# (glass_clear: bodies with a modelled cabin - see-through)
+		g.shader = GLASS_SHADER if name == "glass" else preload("res://src/vehicle/car_glass_clear.gdshader")
 		_mat_cache[name] = g
 		return g
 	match name:
@@ -128,6 +129,43 @@ static func shared_mat(name: String) -> Material:
 		"plate":
 			m.albedo_color = Color(0.9, 0.88, 0.78)
 			m.roughness = 0.6
+		"plate_rear":
+			m.albedo_color = Color(0.95, 0.76, 0.1)
+			m.roughness = 0.5
+		# Kestrel kit (tools/blender/kestrel.py).
+		"rubber":
+			m.albedo_color = Color(0.02, 0.02, 0.022)
+			m.roughness = 0.8
+		"plastic":
+			m.albedo_color = Color(0.035, 0.035, 0.038)
+			m.roughness = 0.62
+		"interior":
+			m.albedo_color = Color(0.05, 0.05, 0.055)
+			m.roughness = 0.9
+		"reflector":
+			m.albedo_color = Color(0.85, 0.86, 0.88)
+			m.metallic = 1.0
+			m.roughness = 0.2
+		"livery_blue", "livery_yellow", "livery_green":
+			# Battenburg checks (traffic police / ambulance bodies).
+			m.albedo_color = {"livery_blue": Color(0.04, 0.16, 0.62), "livery_yellow": Color(0.98, 0.85, 0.05),
+				"livery_green": Color(0.1, 0.55, 0.22)}[name]
+			m.roughness = 0.4
+		"headliner":
+			m.albedo_color = Color(0.6, 0.6, 0.58)
+			m.roughness = 0.9
+		"reflex":
+			# Red reflex reflectors / rear fog (unlit): deep red, glossy.
+			m.albedo_color = Color(0.32, 0.012, 0.014)
+			m.roughness = 0.2
+			m.metallic_specular = 0.8
+		"lens", "lens_red":
+			# Clear headlamp cover / red tail-lamp lens over the modelled
+			# lamp inside (one transparent sheet per lamp).
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.albedo_color = Color(0.9, 0.93, 0.97, 0.06) if name == "lens" else Color(0.62, 0.03, 0.03, 0.34)
+			m.roughness = 0.03
+			m.metallic_specular = 0.9
 		"lamp_rev":
 			m.albedo_color = Color(0.85, 0.85, 0.85)
 			m.roughness = 0.2
@@ -532,7 +570,7 @@ func reset_dents() -> void:
 ## are fractions of the body's bounds, so one rule fits every model; glass,
 ## lamps and the dark under-liners always stay on the car.
 const NO_PART := 255
-const KEEP_MATS := ["glass", "liner", "lamp_head", "lamp_tail", "lamp_rev", "lamp_housing", "beacon_red", "beacon_blue",
+const KEEP_MATS := ["glass", "glass_clear", "lens", "lens_red", "reflex", "interior", "reflector", "liner", "lamp_head", "lamp_tail", "lamp_rev", "lamp_housing", "beacon_red", "beacon_blue",
 	"tyre", "tyre_wall", "rim", "rim_dark", "disc", "caliper"]
 static var _part_cache := {}
 static var _profile_cache := {}
@@ -608,7 +646,7 @@ static func profile(body_name: String, mesh: Mesh) -> Dictionary:
 	var ws_n := 0
 	for s in mesh.get_surface_count():
 		var src := mesh.surface_get_material(s)
-		if src and src.resource_name == "glass":
+		if src and src.resource_name in ["glass", "glass_clear"]:
 			# Side windows: the glasshouse width and height mid-car.
 			for q: Vector3 in mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]:
 				var gz := (q.z - aabb.get_center().z) / (aabb.size.z * 0.5)
