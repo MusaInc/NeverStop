@@ -443,10 +443,14 @@ func _build_title() -> void:
 	go.add_child(_play_sub)
 	_update_play_sub()
 
-	var online := _btn("LAST CAR STANDING  ·  ONLINE", func(): _transition(func(): game.start_mode("lcs")), false, 18)
-	online.name = "LAST CAR STANDING"
-	online.custom_minimum_size = Vector2(560, 46)
-	go.add_child(online)
+	# Last Car Standing (online prototype: direct-address ENet, no public
+	# matchmaking or hosting yet) stays out of the public build until it is a
+	# real service. Development builds reach it with --online (NS-01).
+	if game.online_enabled():
+		var online := _btn("LAST CAR STANDING  ·  ONLINE", func(): _transition(func(): game.start_mode("lcs")), false, 18)
+		online.name = "LAST CAR STANDING"
+		online.custom_minimum_size = Vector2(560, 46)
+		go.add_child(online)
 
 	var sp2 := Control.new()
 	sp2.size_flags_vertical = SIZE_EXPAND_FILL

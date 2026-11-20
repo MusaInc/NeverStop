@@ -1,7 +1,9 @@
-# NEVER STOP 1.0: App Store submission pack
+# NEVER STOP: App Store submission pack (first release, build 1.3.x)
 
-Everything here describes features in the 1.0 build (checked against the
-code and menus on 12 Nov 2026). Paste into App Store Connect → NEVER STOP →
+Everything here describes features in the public build (checked against the
+code and menus on 12 Nov 2026; rechecked 20 Nov 2026 for 1.3.0: the online
+Last Car Standing prototype is hidden from the public build (`Game.ONLINE_PUBLIC
+= false`), so the offline/no-network statements below and in the privacy page hold). Paste into App Store Connect → NEVER STOP →
 App Store tab → iOS App 1.0. **Items marked OWNER need your decision.**
 
 ## Identity
@@ -11,11 +13,11 @@ App Store tab → iOS App 1.0. **Items marked OWNER need your decision.**
 | Name | NEVER STOP |
 | Subtitle (≤30) | Outrun the whole city's police |
 | Bundle ID | com.musastudios.neverstop |
-| Version / build | 1.0.0 / next TestFlight build number |
+| Version / build | 1.3.0 (the App Store record's version string must be changed from 1.0 to match the build) / next TestFlight build number |
 | SKU | neverstop-ios |
 | Primary category | Games → Racing |
 | Secondary category | Games → Action |
-| Price | **OWNER** (CitySwing is £2.99 paid up front; NEVER STOP has no in-app purchases and no ads either way) |
+| Price | Free (owner decision 20 Nov 2026); no in-app purchases, no ads |
 | Copyright | © 2026 Musa Studios |
 | Support URL | https://musastudios.co.uk/support |
 | Privacy policy URL | https://musastudios.co.uk/privacy/neverstop *(page in `store/privacy-neverstop.html`; publish before submitting)* |

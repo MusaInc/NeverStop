@@ -453,9 +453,20 @@ func start_run() -> void:
 	state_changed.emit(state)
 
 
+## Online Last Car Standing is a prototype (no matchmaking/hosting service):
+## hidden from the public build, reachable with --online or --mode=lcs.
+const ONLINE_PUBLIC := false
+
+
+func online_enabled() -> bool:
+	return ONLINE_PUBLIC or args.has("online") or str(args.get("mode", "")) == "lcs"
+
+
 ## Title screen: start a run, or switch to the separate online LCS scene.
 func start_mode(m: String) -> void:
 	if m == "lcs":
+		if not online_enabled():
+			return
 		get_tree().change_scene_to_file("res://scenes/last_car_standing.tscn")
 		return
 	if not MODE_NAMES.has(m):
