@@ -1335,6 +1335,27 @@ func chunk_furniture(key: Vector2i) -> Array:
 	return out
 
 
+
+## Instance buffer for a prop MultiMesh: 12 floats of transform, plus 4 of
+## custom data (TreeKit tint) when `tree` names a species.
+static func _prop_buffer(list: Array, tree: String) -> PackedFloat32Array:
+	var stride := 16 if tree != "" else 12
+	var buf := PackedFloat32Array()
+	buf.resize(list.size() * stride)
+	var j := 0
+	for x: Transform3D in list:
+		for r in 3:
+			buf[j] = x.basis.x[r]
+			buf[j + 1] = x.basis.y[r]
+			buf[j + 2] = x.basis.z[r]
+			buf[j + 3] = x.origin[r]
+			j += 4
+		if tree != "":
+			var cu: Color = TreeKit.tint(x.origin, tree)
+			buf[j] = cu.r; buf[j + 1] = cu.g; buf[j + 2] = cu.b; buf[j + 3] = cu.a
+			j += 4
+	return buf
+
 func _add_props(root: Node3D, key: Vector2i) -> void:
 	var by_kind := {}
 	for p in chunk_props(key):
@@ -1354,10 +1375,10 @@ func _add_props(root: Node3D, key: Vector2i) -> void:
 		mm.use_custom_data = is_tree
 		mm.mesh = mesh
 		mm.instance_count = list.size()
-		for j in list.size():
-			mm.set_instance_transform(j, list[j])
-			if is_tree:
-				mm.set_instance_custom_data(j, TreeKit.tint((list[j] as Transform3D).origin, kind.trim_prefix("tree_")))
+		# One packed buffer (transform + tree tint), shared with the near LOD:
+		# reading mm.buffer back is a GPU readback (empty on the dummy renderer).
+		var pbuf := _prop_buffer(list, kind.trim_prefix("tree_") if is_tree else "")
+		mm.buffer = pbuf
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = "Props_" + kind
 		mmi.multimesh = mm
@@ -1375,7 +1396,7 @@ func _add_props(root: Node3D, key: Vector2i) -> void:
 			nm.use_custom_data = true
 			nm.mesh = near
 			nm.instance_count = list.size()
-			nm.buffer = mm.buffer
+			nm.buffer = pbuf
 			var nmi := MultiMeshInstance3D.new()
 			nmi.name = "Props_" + kind + "_near"
 			nmi.multimesh = nm
