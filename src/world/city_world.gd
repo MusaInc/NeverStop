@@ -1363,7 +1363,10 @@ func _add_props(root: Node3D, key: Vector2i) -> void:
 		mmi.multimesh = mm
 		mmi.visibility_range_end = PROP_RANGES.get(kind, 320.0 if is_tree else 300.0)
 		mmi.visibility_range_end_margin = 20.0
-		var near: Mesh = TreeKit.near_mesh(kind.trim_prefix("tree_")) if is_tree else null
+		# Blender trees only within a range set by the quality preset
+		# (mobile budget): none on Low, ~66 m on Medium, 110 m on High.
+		var near_r := TREE_NEAR * clampf((prop_density - 0.5) * 2.0, 0.0, 1.0)
+		var near: Mesh = TreeKit.near_mesh(kind.trim_prefix("tree_")) if is_tree and near_r > 20.0 else null
 		if near:
 			# Blender tree up close, the procedural one from TREE_NEAR on
 			# (same instances, transforms and tints: one buffer).
@@ -1376,10 +1379,10 @@ func _add_props(root: Node3D, key: Vector2i) -> void:
 			var nmi := MultiMeshInstance3D.new()
 			nmi.name = "Props_" + kind + "_near"
 			nmi.multimesh = nm
-			nmi.visibility_range_end = TREE_NEAR
+			nmi.visibility_range_end = near_r
 			nmi.visibility_range_end_margin = 10.0
 			root.add_child(nmi)
-			mmi.visibility_range_begin = TREE_NEAR
+			mmi.visibility_range_begin = near_r
 			mmi.visibility_range_begin_margin = 10.0
 		if kind in ["ac_unit", "streetlight", "traffic_light"]:
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
