@@ -342,7 +342,8 @@ func test_9b_backgrounding_pauses_and_back_resumes() -> void:
 
 func test_z_long_session_stays_stable() -> void:
 	await _start(1)
-	var n0 := Performance.get_monitor(Performance.OBJECT_NODE_COUNT)
+	await _frames(120)
+	var n0 := Performance.get_monitor(Performance.OBJECT_NODE_COUNT) - _pooled_nodes()
 	var mem0 := Performance.get_monitor(Performance.MEMORY_STATIC)
 	var peak_units := 0
 	# Five simulated minutes with the escalation running (recoveries on).
@@ -352,10 +353,19 @@ func test_z_long_session_stays_stable() -> void:
 			peak_units = maxi(peak_units, game.director.alive_count())
 		if game.state == game.State.BUSTED:
 			await _start(int(game.director.heat))
-	var n1 := Performance.get_monitor(Performance.OBJECT_NODE_COUNT)
+	var heat_end := int(game.director.heat)
+	var n_busy := Performance.get_monitor(Performance.OBJECT_NODE_COUNT)
+	# A leak survives a restart; live police/chunks at heat 8-9 don't. Compare
+	# a fresh run with the fresh run we started from (same start, settled).
+	await _start(1)
+	await _frames(120)
+	var pooled := _pooled_nodes()
+	var n1 := Performance.get_monitor(Performance.OBJECT_NODE_COUNT) - pooled
 	var mem1 := Performance.get_monitor(Performance.MEMORY_STATIC)
-	note("5 min: heat %d, peak units %d, nodes %d -> %d, static memory %.0f -> %.0f MB" % [game.director.heat, peak_units, n0, n1, mem0 / 1e6, mem1 / 1e6])
-	check(n1 < n0 + 600, "node count bounded")
+	note("5 min: heat %d, peak units %d, nodes %d -> %d busy -> %d after restart, static memory %.0f -> %.0f MB" % [heat_end, peak_units, n0, n_busy, n1, mem0 / 1e6, mem1 / 1e6])
+	note("police pool after restart: %d cars, %d nodes (reused, not leaked)" % [_pooled_cars(), pooled])
+	check(n1 < n0 + 600, "node count bounded (pooled police cars excluded)")
+	check(_pooled_cars() <= 40, "police pool bounded (%d cars)" % _pooled_cars())
 	check(mem1 < mem0 * 1.5 + 50e6, "memory bounded")
 
 
@@ -791,3 +801,21 @@ func test_8b_trees_are_knocked_down() -> void:
 	check(game.player.global_position.z < (item[1] as Transform3D).origin.z - 2.0, "the car drives on past it")
 	check(game.player.health >= h0 - 0.01, "no damage from a tree")
 	game.director.active = true
+
+
+## PursuitDirector keeps released police cars hidden in a pool (no allocation
+## mid-chase); they stay through a restart by design. Count them separately.
+func _pooled_cars() -> int:
+	var n := 0
+	for k in game.director.pool:
+		n += (game.director.pool[k] as Array).size()
+	return n
+
+
+func _pooled_nodes() -> int:
+	var n := 0
+	for k in game.director.pool:
+		for car: Node in game.director.pool[k]:
+			if is_instance_valid(car):
+				n += 1 + car.find_children("*", "", true, false).size()
+	return n
