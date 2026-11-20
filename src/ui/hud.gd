@@ -146,7 +146,9 @@ func _draw_coach(vp: Vector2) -> void:
 	var a := clampf(_coach_t * 3.0, 0.0, 1.0)
 	var size := 24
 	var w := UiStyle.text_width(t, size, "black")
-	var y := vp.y * 0.44
+	# Above the horizon (skyline), under the dispatch line: at 0.44 it sat on
+	# the road just ahead of the car, over the traffic you must read.
+	var y := vp.y * 0.27
 	UiStyle.pill(self, Rect2(vp.x * 0.5 - w * 0.5 - 26, y - 34, w + 52, 48), Color(UiStyle.INK, 0.7 * a))
 	draw_rect(Rect2(vp.x * 0.5 - w * 0.5 - 26, y + 12, (w + 52) * float(_coach_i + 1) / _coach.size(), 3), Color(UiStyle.AMBER, a))
 	UiStyle.text(self, Vector2(vp.x * 0.5 - w * 0.5, y), t, size, Color(UiStyle.WHITE, a), "black")
