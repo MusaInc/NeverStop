@@ -1299,6 +1299,7 @@ func _build_garage() -> void:
 	gap.size_flags_vertical = SIZE_EXPAND_FILL
 	gap.mouse_filter = MOUSE_FILTER_IGNORE
 	right.add_child(gap)
+	_garage.focus = gap  # (the car is framed into this space)
 	var nav := HBoxContainer.new()
 	nav.alignment = BoxContainer.ALIGNMENT_CENTER
 	nav.add_theme_constant_override("separation", 14)

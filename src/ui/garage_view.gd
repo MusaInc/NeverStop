@@ -12,6 +12,13 @@ var cam: Camera3D
 var _spin := 0.6
 var _drag := false
 var _yaw := 0.6
+## The part of the screen the car must fit in (the garage's free area right
+## of the stats card, above the switcher). Whole view when unset.
+var focus: Control
+var _centre := Vector3(0, 0.7, 0)  # middle of the car's visual bounds
+var _radius := 3.0                  # bounding sphere: fits at every turntable yaw
+var _disc: Array[Node3D] = []       # turntable floor + rim (sized to the car)
+const ELEV := 0.166                 # camera ~9.5° above the car's middle
 
 
 func _ready() -> void:
@@ -64,6 +71,7 @@ func _ready() -> void:
 	floor.material_override = floor_m
 	floor.position.y = -0.05
 	stage.add_child(floor)
+	_disc.append(floor)
 	var ring := MeshInstance3D.new()
 	var tm := TorusMesh.new()
 	tm.inner_radius = 4.22
@@ -77,6 +85,7 @@ func _ready() -> void:
 	ring.material_override = rm
 	ring.scale = Vector3(1, 0.2, 1)
 	stage.add_child(ring)
+	_disc.append(ring)
 	cam = Camera3D.new()
 	cam.fov = 34.0
 	stage.add_child(cam)
@@ -98,14 +107,63 @@ func show_car(spec: Dictionary) -> void:
 	visual.setup(car)
 	for i in 4:
 		car.wheel_comp_visual[i] = 0.08
-	# Frame big trucks as well as hatchbacks.
-	var sz: Vector3 = spec["size"]
-	var k := maxf(1.0, maxf(sz.z / 4.6, (sz.y + float(spec["ride"])) / 1.45))
-	var target := Vector3(-2.6 * k, 0.45 * k, 0)
-	cam.position = target + Vector3(0, 1.45, 8.6) * k
-	cam.look_at(target, Vector3.UP)
 	car.position = Vector3.ZERO
+	car.rotation.y = 0.0
+	_measure()
 	car.rotation.y = _yaw
+	_frame()
+
+
+## The car's real drawn bounds (body, wheels, bars – not the catalogue size):
+## a sphere round them fits whatever way the turntable faces.
+func _measure() -> void:
+	var inv := car.global_transform.affine_inverse()
+	var box := AABB()
+	var first := true
+	for mi: MeshInstance3D in car.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var b := (inv * mi.global_transform) * mi.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	if first:
+		var sz: Vector3 = car.spec.get("size", Vector3(2, 1.5, 4.6)) if "spec" in car else Vector3(2, 1.5, 4.6)
+		box = AABB(Vector3(-sz.x, 0, -sz.z) * 0.5, sz)
+	box.position.y = maxf(box.position.y, 0.0)
+	var half_xz := Vector2(maxf(absf(box.position.x), absf(box.end.x)), maxf(absf(box.position.z), absf(box.end.z))).length()
+	_centre = Vector3(0, box.get_center().y, 0)
+	# Turntable just wider than the car's swept circle; the framed sphere
+	# holds both, so the rim never runs off the free area either.
+	var disc_r := half_xz + 0.45
+	var k := disc_r / 4.3
+	for d in _disc:
+		d.scale = Vector3(k, d.scale.y, k)
+	_radius = Vector2(disc_r, maxf(box.size.y * 0.5, _centre.y)).length() * 1.02
+
+
+## Camera distance and lens shift so the sphere sits in `focus` at any aspect.
+func _frame() -> void:
+	if size.x < 8.0 or size.y < 8.0:
+		return
+	var r := Rect2(Vector2.ZERO, size)
+	if focus and is_instance_valid(focus) and focus.size.x > 40.0 and focus.size.y > 40.0:
+		r = Rect2(focus.get_global_rect().position - get_global_rect().position, focus.size).intersection(r)
+	var asp := size.x / size.y
+	cam.keep_aspect = Camera3D.KEEP_HEIGHT
+	cam.fov = 34.0
+	var tv := tan(deg_to_rad(cam.fov) * 0.5)
+	var th := tv * asp
+	# Focus rect in normalised device coordinates (centre, half extents).
+	var cx := r.get_center().x / size.x * 2.0 - 1.0
+	var cy := 1.0 - r.get_center().y / size.y * 2.0
+	var a := atan(minf(r.size.x / size.x * th, r.size.y / size.y * tv))
+	var dist := _radius / sin(a)
+	var dir := Vector3(0, ELEV, 1).normalized()
+	cam.position = _centre + dir * dist
+	cam.look_at(_centre, Vector3.UP)
+	cam.h_offset = -cx * dist * th
+	cam.v_offset = -cy * dist * tv
+	cam.far = dist + _radius * 4.0 + 20.0
 
 
 func _gui_input(ev: InputEvent) -> void:
@@ -121,15 +179,8 @@ func _process(dt: float) -> void:
 		size = (get_parent() as Control).size
 	if size.x > 8.0 and Vector2i(size) != vp.size:
 		vp.size = Vector2i(size)
-	# 4:3 (iPad): keep the 16:9 horizontal angle so the car isn't cropped.
-	var asp := size.x / maxf(size.y, 1.0)
-	if asp < 16.0 / 9.0 - 0.01:
-		cam.keep_aspect = Camera3D.KEEP_WIDTH
-		cam.fov = 57.0
-	else:
-		cam.keep_aspect = Camera3D.KEEP_HEIGHT
-		cam.fov = 34.0
 	if car:
+		_frame()  # (cheap; follows window/layout changes, iPad and wide phones)
 		if not _drag:
 			_spin = move_toward(_spin, 0.35, dt * 0.3)
 		_yaw += _spin * dt
