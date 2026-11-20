@@ -63,7 +63,29 @@ func load_data() -> void:
 				data[k] = parsed[k]
 			if p != path:
 				push_warning("SaveData: %s unreadable, recovered from backup" % path)
+			_sanitise()
 			return
+
+
+## A readable file can still hold nonsense (an edited or half-migrated save):
+## wrong-typed fields go back to their defaults, the rest is kept (SH-03).
+func _sanitise() -> void:
+	SafeSave.repair(data, DEFAULTS)
+	data["cash"] = maxi(0, int(data["cash"]))
+	var owned: Array = []
+	for id in data["owned"]:
+		if CarCatalog.CARS.has(id) and not owned.has(id):
+			owned.append(id)
+	if owned.is_empty():
+		owned = ["kestrel"]
+	data["owned"] = owned
+	if not owned.has(data["car"]):
+		data["car"] = owned[0]
+	if not (data["start"] in data["starts"]):
+		data["start"] = "downtown"
+	for id in data["cars"].keys():
+		if not (data["cars"][id] is Dictionary):
+			data["cars"].erase(id)
 
 
 static func _read(p: String):
@@ -80,23 +102,16 @@ static func _read(p: String):
 ## as .bak, then move the new one into place. A crash or the OS killing the
 ## app at any point leaves a complete save (or its backup) on disk.
 func save() -> void:
-	var tmp := path + ".tmp"
-	var f := FileAccess.open(tmp, FileAccess.WRITE)
-	if f == null:
-		push_warning("SaveData: cannot write %s" % tmp)
-		return
-	f.store_string(JSON.stringify(data, "  "))
-	f.flush()
-	f.close()
-	if _read(tmp) == null:
-		push_warning("SaveData: temp save did not read back; keeping the old save")
-		return
-	var dir := DirAccess.open(path.get_base_dir())
-	if dir:
-		if FileAccess.file_exists(path):
-			dir.copy(path, path + ".bak")
-		dir.rename(tmp, path)
+	# (SafeSave: read-back check, only a valid file becomes .bak, every rename
+	# and copy checked.)
+	last_error = SafeSave.write(path, data)
+	if last_error != "":
+		push_warning("SaveData: save failed – %s; keeping the old save" % last_error)
 	changed.emit()
+
+
+## "" after a good save, else why it failed (Settings can show it).
+var last_error := ""
 
 
 ## Settings → Reset everything: a fresh profile (settings are kept).

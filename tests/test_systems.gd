@@ -73,6 +73,26 @@ func test_save_survives_reload_and_corruption(t) -> void:
 	other.free()
 
 
+func test_save_repairs_wrong_types_and_keeps_the_rest(t) -> void:
+	# The audit's probe: valid JSON, nonsense fields (owned = 7).
+	var f := FileAccess.open("user://unit_bad.json", FileAccess.WRITE)
+	f.store_string(JSON.stringify({"cash": 900, "owned": 7, "car": "nonexistent", "xp": "lots",
+		"best_score": 4321, "cars": {"kestrel": 3}, "history": [], "starts": ["downtown"]}))
+	f.close()
+	var other: Node = load("res://src/core/save_data.gd").new()
+	other.use_file("user://unit_bad.json")
+	t.check(other.data["owned"] is Array and other.owns("kestrel"), "owned repaired to a real list (%s)" % [other.data["owned"]])
+	t.check(other.data["car"] == "kestrel", "selected car is one you own")
+	t.check(other.cash() == 900 and int(other.data["best_score"]) == 4321, "good fields kept")
+	t.check(typeof(other.data["xp"]) == TYPE_INT and int(other.data["xp"]) == 0, "wrong-typed xp reset")
+	t.check(not other.data["cars"].has("kestrel") or other.data["cars"]["kestrel"] is Dictionary, "broken car record dropped")
+	other.save()
+	t.check(other.last_error == "", "repaired profile saves")
+	other.free()
+	for sfx in ["", ".bak", ".tmp"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path("user://unit_bad.json" + sfx))
+
+
 func test_upgrades_change_the_spec(t) -> void:
 	var base: Dictionary = save.car_spec("marlin")
 	save.car_state("marlin")["upgrades"]["engine"] = 3
