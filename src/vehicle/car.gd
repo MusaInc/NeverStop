@@ -172,6 +172,18 @@ func setup(p_spec: Dictionary, p_role := "player") -> void:
 	var cab_r := hl * 0.7
 	for z in [cab_f, cab_r]:
 		pts.append_array([Vector3(-hw * 0.82, y2, z), Vector3(hw * 0.82, y2, z)])
+	# Bumper band: square ends from just above the step the wedges must ramp
+	# (STEP_MAX) to the shoulder line, in the same hull (a second shape made a
+	# compound body that took ledges worse). Two cars meet face to face here;
+	# with wedges only, a rear-ender ramped one car up onto the other's bonnet
+	# (a struck taxi ended up on your car). Kerbs and ledges up to STEP_MAX
+	# still pass under it and ride the wedge.
+	var bb := STEP_MAX + 0.16
+	var bt := maxf(y1, bb + 0.25)
+	if bt < y2:
+		for z in [-hl + 0.04, hl - 0.04]:
+			for y in [bb, bt]:
+				pts.append_array([Vector3(-hw + 0.06, y, z), Vector3(hw - 0.06, y, z)])
 	h.points = pts
 	shape.shape = h
 	add_child(shape)
