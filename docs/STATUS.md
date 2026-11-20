@@ -1,3 +1,11 @@
+# Status: 2026-11-20 (1.3.1, TestFlight build 16)
+
+- Garage frames every car in the free area at any aspect (real bounds → sphere, turntable sized to the car, lens shift into the gap above the switcher).
+- Online Last Car Standing hidden from the public build (`Game.ONLINE_PUBLIC = false`; `--online` for development); store text and privacy page now match (offline). Price: Free.
+- Rail piers no longer stand inside roundabouts (the audit's median support, SH-04). First-run coach drawn over the skyline, not the road ahead.
+- Saves: shared SafeSave + field repair (owned=7 etc.). Long-session test now checks a restart returns to the start's node count (police pool counted separately).
+- Not done: balance/pursuit tuning (needs human play), device checks, privacy page publication (owner script in WorldState tools/shared/publish_privacy.sh).
+
 # Status: 2026-11-13 (1.1.0 in progress)
 
 ## Harbour Point: the south coast as a destination (`src/world/harbour_point.gd`)
