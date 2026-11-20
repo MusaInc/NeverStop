@@ -1159,6 +1159,8 @@ func _build_settings() -> void:
 	_choice(grid, "Camera", ["Near", "Normal", "Far"], Settings.camera_distance, func(i): Settings.camera_distance = i; game.camera.distance_setting = i)
 	_choice(grid, "Time of day", ["Cycle", "Day", "Sunset", "Night"], ["cycle", "day", "sunset", "night"].find(Settings.time_of_day),
 		func(i): Settings.time_of_day = ["cycle", "day", "sunset", "night"][i]; Settings.apply())
+	_choice(grid, "Image", ["Crisp", "Natural"], 0 if Settings.look == "crisp" else 1,
+		func(i): Settings.look = "crisp" if i == 0 else "clean"; Settings.apply())
 	_slider(grid, "Music", 0.0, 1.0, Settings.music_volume, func(x): Settings.music_volume = x; Settings.apply())
 	_slider(grid, "Sound effects", 0.0, 1.0, Settings.sfx_volume, func(x): Settings.sfx_volume = x; Settings.apply())
 	_toggle(grid, "Vibration", Settings.haptics, func(b): Settings.haptics = b)

@@ -310,9 +310,17 @@ func is_water(p: Vector3) -> bool:
 
 
 # ------------------------------------------------------------- materials
+## Street graffiti pieces (WorldState tools/graffiti/make_atlas.py), faded
+## into the older walls by building.gdshader.
+const GRAFFITI := "res://assets/world/graffiti_atlas.png"
+
+
 func _materials() -> void:
 	building_mat = ShaderMaterial.new()
 	building_mat.shader = load("res://src/world/shaders/building.gdshader")
+	if ResourceLoader.exists(GRAFFITI):
+		building_mat.set_shader_parameter("graffiti_atlas", load(GRAFFITI))
+		building_mat.set_shader_parameter("has_graffiti", true)
 	ground_mat = ShaderMaterial.new()
 	ground_mat.shader = load("res://src/world/shaders/ground.gdshader")
 	water_mat = ShaderMaterial.new()
