@@ -3,6 +3,8 @@
 //   style 1 Comic   – ink outlines, 3-tone cel shading, halftone in shadows
 //   style 2 Toon    – softer lines, posterised colour, bright and saturated
 //   style 3 Painted – Kuwahara brush smoothing + light outlines
+//   style 4 Crisp   – light edge-preserving smoothing (blended, small radius),
+//                     thin shaded depth outlines, mild grade: cleaner, not cartoon
 // Outlines come from relative depth jumps (silhouettes at any distance) plus
 // colour edges (window grids, kerbs); both fade into the fog.
 shader_type spatial;
@@ -10,6 +12,9 @@ render_mode unshaded, cull_disabled, depth_test_disabled, depth_draw_never, skip
 
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear, repeat_disable;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest, repeat_disable;
+// (Mipmapped copy for the lens effects: broad glare in one lookup.)
+uniform sampler2D screen_mip : hint_screen_texture, filter_linear_mipmap, repeat_disable;
+global uniform float night;
 
 uniform int style = 1;
 uniform vec3 ink : source_color = vec3(0.07, 0.06, 0.12);
@@ -33,6 +38,14 @@ uniform float haze_amount = 0.4;
 uniform float vignette = 0.28;
 uniform float speed = 0.0;            // 0..1, drives the speed lines
 uniform float speed_lines = 1.0;
+uniform float smooth_amount = 1.0;   // Crisp: blend of the smoothed image over the original
+uniform float ink_amount = 1.0;      // outline opacity scale
+uniform float ink_shade = 0.0;       // 0 = flat ink colour, 1 = darkened scene colour
+// Lens: anamorphic streaks, starburst spikes, glare halo and a faint
+// directional ghost, from bright pixels only (lamps, headlights, glints).
+uniform float lens = 0.0;
+uniform float lens_threshold = 1.15;  // linear HDR: what counts as a light
+uniform vec3 streak_tint : source_color = vec3(0.55, 0.72, 1.0);
 
 void vertex() {
 	POSITION = vec4(VERTEX.xy, 1.0, 1.0);
@@ -52,6 +65,47 @@ float lin_depth(sampler2D dtex, vec2 uv, mat4 inv_proj) {
 }
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+vec3 bright(vec3 c, float th) {
+	float l = dot(c, vec3(0.299, 0.587, 0.114));
+	return c * (max(l - th, 0.0) / max(l, 0.001));
+}
+
+// Light added by the lens around uv (linear HDR in, linear out).
+vec3 lens_light(sampler2D stex, vec2 uv, vec2 px, float th, vec3 tint, float t_night) {
+	vec3 acc = vec3(0.0);
+	float aspect = px.y / px.x;
+	// Anamorphic streak: a long horizontal smear of the lights (lod 2 taps).
+	for (int i = 1; i <= 6; i++) {
+		float d = float(i) * float(i) * 0.0045;
+		float w = exp(-float(i) * 0.55);
+		acc += (bright(textureLod(stex, uv + vec2(d, 0.0), 2.0).rgb, th)
+			+ bright(textureLod(stex, uv - vec2(d, 0.0), 2.0).rgb, th)) * w * tint * 0.34;
+	}
+	// Starburst: six thin spikes (aperture blades), short.
+	for (int k = 0; k < 3; k++) {
+		float a = float(k) * 1.0472 + 0.35;
+		vec2 dir = vec2(cos(a), sin(a) * aspect) * 0.006;
+		for (int i = 1; i <= 3; i++) {
+			float w = 0.16 / float(i * i);
+			acc += (bright(textureLod(stex, uv + dir * float(i), 0.0).rgb, th)
+				+ bright(textureLod(stex, uv - dir * float(i), 0.0).rgb, th)) * w;
+		}
+	}
+	// Glare: a soft halo (one blurred lookup) and a ghost on the far side
+	// of the frame centre (the classic flare reflection), faint.
+	// (Eight lod-3 taps on a ring, not one lod-5 lookup: on device a deep
+	// mip came back as big hard-edged squares round every wet glint.)
+	vec3 halo = vec3(0.0);
+	for (int k = 0; k < 8; k++) {
+		float a = float(k) * 0.7854 + 0.39;
+		halo += bright(textureLod(stex, uv + vec2(cos(a), sin(a) * aspect) * 0.018, 3.0).rgb, th * 0.8);
+	}
+	acc += halo * (0.6 / 8.0);
+	vec2 ghost = vec2(1.0) - uv;
+	acc += bright(textureLod(stex, mix(uv, ghost, 0.6), 3.0).rgb, th) * vec3(0.5, 0.8, 1.0) * 0.1 * t_night;
+	return acc;
+}
 
 vec3 saturate_col(vec3 c, float s) {
 	float l = luma(c);
@@ -96,6 +150,35 @@ vec3 kuwahara(sampler2D stex, vec2 uv, vec2 px) {
 	return best;
 }
 
+// Small Kuwahara (radius 2, 36 taps): irons out texture noise and shimmer
+// while keeping edges sharp. Cheap enough for phones at the 3D render scale.
+vec3 kuwahara_small(sampler2D stex, vec2 uv, vec2 px) {
+	vec3 m[4];
+	vec3 s[4];
+	for (int k = 0; k < 4; k++) { m[k] = vec3(0.0); s[k] = vec3(0.0); }
+	for (int j = -2; j <= 0; j++) {
+		for (int i = -2; i <= 0; i++) {
+			vec3 a = texture(stex, uv + vec2(float(i), float(j)) * px).rgb;
+			vec3 b = texture(stex, uv + vec2(float(-i), float(j)) * px).rgb;
+			vec3 c = texture(stex, uv + vec2(float(i), float(-j)) * px).rgb;
+			vec3 d = texture(stex, uv + vec2(float(-i), float(-j)) * px).rgb;
+			m[0] += a; s[0] += a * a;
+			m[1] += b; s[1] += b * b;
+			m[2] += c; s[2] += c * c;
+			m[3] += d; s[3] += d * d;
+		}
+	}
+	vec3 best = m[0] / 9.0;
+	float best_v = 1e9;
+	for (int k = 0; k < 4; k++) {
+		vec3 mu = m[k] / 9.0;
+		vec3 var = abs(s[k] / 9.0 - mu * mu);
+		float v = var.r + var.g + var.b;
+		if (v < best_v) { best_v = v; best = mu; }
+	}
+	return best;
+}
+
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	vec2 res = VIEWPORT_SIZE;
@@ -103,6 +186,16 @@ void fragment() {
 	vec3 col = texture(screen_tex, uv).rgb;
 	if (style == 3) {
 		col = kuwahara(screen_tex, uv, px * max(res.y / 720.0, 1.0));
+	} else if (style == 4 && smooth_amount > 0.0) {
+		col = mix(col, kuwahara_small(screen_tex, uv, px), smooth_amount);
+	}
+	if (lens > 0.0) {
+		// Brighter-than-paper light blooms through the lens; at night lamps
+		// and headlights do, by day only real glints (higher threshold).
+		float th = mix(lens_threshold * 2.2, lens_threshold, night);
+		col += lens_light(screen_mip, uv, px, th, streak_tint, night) * lens * mix(0.5, 1.0, night);
+		// Directional blur: the faintest astigmatic double image of lights.
+		col += bright(textureLod(screen_mip, uv + vec2(0.0035, 0.0018), 1.0).rgb, th) * 0.18 * lens;
 	}
 
 	// ---- outlines
@@ -128,7 +221,7 @@ void fragment() {
 	float e_col = smoothstep(color_edge, color_edge * 1.8, g / max(sqrt(luma(col)) + 0.25, 0.25));
 
 	float fade = 1.0 - smoothstep(line_far * 0.35, line_far, near_d);
-	float colour_lines = style == 2 ? 0.45 : (style == 3 ? 0.3 : 0.75);
+	float colour_lines = style == 2 ? 0.45 : (style == 3 ? 0.3 : (style == 4 ? 0.2 : 0.75));
 	float edge = clamp(max(e_depth, e_col * colour_lines * (1.0 - smoothstep(30.0, line_far * 0.6, near_d))), 0.0, 1.0) * fade;
 
 	// ---- tone (the screen buffer is linear HDR before tonemapping: stylise in
@@ -151,7 +244,7 @@ void fragment() {
 		float dots = 1.0 - smoothstep(dot_r - 0.08, dot_r + 0.08, length(cell));
 		c = mix(c, c * 0.55 + ink * 0.2, dots * halftone * dark);
 	}
-	c = mix(c, ink, edge * (style == 2 ? 0.8 : 0.92));
+	c = mix(c, mix(ink, c * 0.3, ink_shade), edge * (style == 2 ? 0.8 : 0.92) * ink_amount);
 	// Layered distance haze toward a warm pastel (background reads as painted
 	// cards, the foreground pops). The sky itself is left alone.
 	float far_t = smoothstep(haze_near, haze_far, dc) * step(dc, 4000.0);

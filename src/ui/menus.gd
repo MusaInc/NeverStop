@@ -159,7 +159,24 @@ func show_screen(name: String) -> void:
 		"help": _build_help()
 		"about": _build_about()
 	c.visible = true
+	_frost.call_deferred(c)
 	_focus_first.call_deferred(c)
+
+
+## Real frosted glass (shared Musa GlassSheet shader) on the menu's glass
+## cards: the city behind them is blurred, not just dimmed. Only the big
+## rounded translucent panels; chips and rows keep their flat style.
+func _frost(c: Control) -> void:
+	if not is_instance_valid(c):
+		return
+	for p in c.find_children("*", "PanelContainer", true, false):
+		var sb := (p as Control).get_theme_stylebox("panel") as StyleBoxFlat
+		if sb and sb.corner_radius_top_left >= 18 and sb.bg_color.a < 0.9 and (p as Control).material == null:
+			var m := ShaderMaterial.new()
+			m.shader = GlassSheet.SHADER
+			m.set_shader_parameter("tint", Color(UiStyle.INK, 0.55))
+			m.set_shader_parameter("blur", 3.4)
+			(p as Control).material = m
 
 
 func _focus_first(c: Control) -> void:

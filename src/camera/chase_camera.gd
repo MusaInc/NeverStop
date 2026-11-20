@@ -48,9 +48,12 @@ func _ready() -> void:
 	cam.name = "Camera"
 	cam.fov = base_fov
 	cam.near = 0.15
-	cam.far = 2400.0
+	cam.far = 6500.0  # (WorldState: the mountains round the bay are 2-5 km out; at 2400 they were clipped in and out while driving)
 	add_child(cam)
 	cam.make_current()
+	var look := LookFilter.new()
+	look.name = "Look"
+	cam.add_child(look)
 	_noise.frequency = 0.9
 	_sphere.radius = 0.35
 	_query.shape = _sphere

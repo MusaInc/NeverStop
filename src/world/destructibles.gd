@@ -44,7 +44,7 @@ func _index(w: CityWorld) -> void:
 	for key in w._all_keys:
 		for it in w.chunk_props(key) + w.chunk_furniture(key):
 			var kind: String = it[0]
-			if not kind in BREAKABLE:
+			if not (kind in BREAKABLE or kind.begins_with("tree_")):
 				continue
 			var xf: Transform3D = it[1]
 			var c := Vector2i(floori(xf.origin.x / CELL), floori(xf.origin.z / CELL))
@@ -123,7 +123,7 @@ func _break(it: Array, car: Car) -> void:
 	w.broken[it[3]] = true
 	_dirty[it[2]] = 0.15
 	_dirty_world[it[2]] = w
-	car.linear_velocity *= SLOW.get(kind, 0.95)
+	car.linear_velocity *= SLOW.get(kind, 0.86 if kind.begins_with("tree") else 0.95)
 	_throw(kind, xf, car, w)
 	broke.emit(kind, xf.origin, car)
 
@@ -152,11 +152,13 @@ func _throw(kind: String, xf: Transform3D, car: Car, w: CityWorld) -> void:
 	if _pieces.size() >= budget:
 		var old: Array = _pieces.pop_front()
 		(old[0] as Node).queue_free()
-	var mesh := _mesh_for(kind, w)
+	# (A TreeKit species is tinted per instance in a MultiMesh; the flying
+	# piece uses the plain glTF tree.)
+	var mesh := _mesh_for("tree" if kind.begins_with("tree_") else kind, w)
 	var b := RigidBody3D.new()
 	b.collision_layer = 1 << 5
 	b.collision_mask = 1 | (1 << 3)
-	var tall := kind in TALL
+	var tall := kind in TALL or kind.begins_with("tree")
 	var tree := kind.begins_with("tree")
 	b.mass = 140.0 if tree else (60.0 if tall else 25.0)
 	# Trees are placed scaled; a physics body must not be, so the scale goes

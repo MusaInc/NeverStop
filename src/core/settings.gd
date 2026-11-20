@@ -46,7 +46,9 @@ var right_mode := "stick"
 var camera_distance := 1
 var music_volume := 0.5
 var sfx_volume := 1.0
-var look := "clean"
+## Post-process style (LookFilter.STYLES): "crisp" = WorldState's subtle
+## clean-up pass (default since 1.3), "clean" = no filter.
+var look := "crisp"
 ## Sky: "cycle", or fixed "day" / "sunset" / "night".
 var time_of_day := "cycle"
 var weather := "changing"
@@ -71,6 +73,7 @@ func _ready() -> void:
 		sfx_volume = cfg.get_value("audio", "sfx", sfx_volume)
 		reduce_motion = cfg.get_value("access", "reduce_motion", reduce_motion)
 		high_contrast_hud = cfg.get_value("access", "high_contrast_hud", high_contrast_hud)
+		look = cfg.get_value("gfx", "look", look)
 	apply()
 
 
@@ -102,7 +105,11 @@ func apply() -> void:
 			vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
 		else:
 			vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-		vp.msaa_3d = p["msaa"]
+		# The Crisp pass reads the depth buffer, which MSAA leaves empty on
+		# the Mobile renderer: it brings its own edge smoothing instead.
+		var stylised := look != "clean" and RenderingServer.get_current_rendering_method() != "gl_compatibility"
+		vp.msaa_3d = Viewport.MSAA_DISABLED if stylised else p["msaa"]
+		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if stylised and p["msaa"] != Viewport.MSAA_DISABLED else Viewport.SCREEN_SPACE_AA_DISABLED
 		# Sharper anisotropic filtering of textures seen at grazing angles (roads).
 		vp.anisotropic_filtering_level = Viewport.ANISOTROPY_8X if quality != Quality.LOW else Viewport.ANISOTROPY_2X
 		RenderingServer.directional_shadow_atlas_set_size(int(p.get("shadow_map", 2048)), true)
@@ -115,6 +122,7 @@ func save() -> void:
 	cfg.set_value("gfx", "show_perf", show_perf)
 	cfg.set_value("gfx", "time_of_day", time_of_day)
 	cfg.set_value("gfx", "weather", weather)
+	cfg.set_value("gfx", "look", look)
 	cfg.set_value("input", "haptics", haptics)
 	cfg.set_value("input", "steer_mode", steer_mode)
 	cfg.set_value("input", "steer_sensitivity", steer_sensitivity)

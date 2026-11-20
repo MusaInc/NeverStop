@@ -57,13 +57,16 @@ void fragment() {
 	vec3 env = mix(ground, sky, smoothstep(-0.015, 0.025, r.y));
 	// Sun glint on the coat.
 	float sd = max(dot(r, normalize(sun_dir)), 0.0);
-	float glint = pow(sd, 220.0) * 6.0 + pow(sd, 24.0) * 0.18;   // crisp coat glint + soft base-coat sheen
+	float glint = pow(sd, 220.0) * 3.2 + pow(sd, 24.0) * 0.12;   // crisp coat glint + soft base-coat sheen
 	// Flakes: tiny sparkles in the base coat near the sun's reflection, faded
 	// out with distance (no shimmer far away).
 	float dist = length(VERTEX);
 	float fl = step(0.985, hash3(floor(v_p * 520.0))) * pow(sd, 40.0) * smoothstep(6.0, 2.5, dist);
 	glint += fl * flake * metallic * 0.7;
 	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
-	float k = mix(0.07, 0.75, fres) * gloss * (1.0 - dirt * 0.85);
-	EMISSION = (env * k + vec3(glint) * gloss * (1.0 - dirt)) * (1.0 - night * 0.85);
+	// (2026-11-20: 0.75 at grazing + a 6x glint washed bodies out milky
+	// grey under overcast skies and bloomed in the sun.)
+	float k = mix(0.05, 0.5, fres) * gloss * (1.0 - dirt * 0.85);
+	vec3 em = env * k + vec3(glint) * gloss * (1.0 - dirt);
+	EMISSION = min(em, vec3(2.4)) * (1.0 - night * 0.85);
 }

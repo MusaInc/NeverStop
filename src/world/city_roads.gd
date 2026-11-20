@@ -266,7 +266,7 @@ func _roundabouts(majors: Array) -> void:
 	for rb in roundabouts:
 		var ring := _circle(rb["c"], rb["r"], 28)
 		ring.append(ring[0])
-		roads.append({"pts": ring, "w": rb["w"], "kind": "major", "loop": true})
+		roads.append({"pts": ring, "w": rb["w"], "kind": "major", "loop": true, "ring": true})
 
 
 # ---------------------------------------------------------------- blocks
@@ -377,20 +377,72 @@ static var parallel_field_bake := true
 
 func bake_field(cell := 1.5) -> void:
 	field_cell = cell
+	# Over the whole coast (headlands and the far side of the ring road reach
+	# past `bounds`: outside the field the edge texels smeared over them).
 	field_rect = Rect2(bounds.position - Vector2(10, 10), bounds.size + Vector2(20, 20))
+	if not coast.is_empty():
+		var cb := Rect2(coast[0], Vector2.ZERO)
+		for q in coast:
+			cb = cb.expand(q)
+		field_rect = field_rect.merge(cb.grow(12.0))
 	field_w = ceili(field_rect.size.x / cell)
 	field_h = ceili(field_rect.size.y / cell)
 	_segs.clear()
 	_seg_grid.clear()
+	_ring_c.clear()
+	# Streets and boulevards end at the coast road's outer kerb: past it is
+	# the esplanade (and the strait promenade under the bridge ramp), which is
+	# pavement – carried on to the sea wall (boulevards) or past a sharp turn
+	# of the coast road (streets at Westbank's inlets), their field drew
+	# kerb-stone stripes and blobs across it.
+	var land_in := PackedVector2Array()
+	# (Cut at the coast road's centre line: its own carriageway covers the
+	# joint – cut at its outer kerb, a boulevard meeting it at a shallow angle
+	# by Westbank's inlets stuck its square end's corners out past it.)
+	var rc_off := Geometry2D.offset_polygon(_ring_coast(), -(ESPLANADE + RING_W * 0.5))
+	if not rc_off.is_empty() and by_name.has("ring"):
+		land_in = rc_off[0]
 	for r in roads:
 		var pts := _simplify(r["pts"], 0.25)
 		var hw: float = float(r["w"]) * 0.5
-		var along := 0.0
-		for i in pts.size() - 1:
-			var a := pts[i]
-			var b := pts[i + 1]
-			_add_seg([a, b, hw, int(r["id"]), along, r["kind"] != "minor"])
-			along += a.distance_to(b)
+		if String(r.get("name", "")).ends_with("Approach") and pts.size() >= 2:
+			# A bridge approach's junction box reaches over the coast road's
+			# far lanes to just short of its far kerb (field only): ending at
+			# the centre line, the box's edge wandered across the far edge line
+			# and cut it into squiggles (2026-11-18 bridge-end renders).
+			pts = pts.duplicate()
+			pts[0] -= (pts[1] - pts[0]).normalized() * (RING_W * 0.5 - 3.0)
+		# (A roundabout's ring: its half width carries +0.25 m as a flag – real
+		# half widths are whole half-metres – so the ground paints it one-way.)
+		if r.get("ring", false):
+			hw += 0.25
+			_ring_c[int(r["id"])] = _centroid(pts)
+		var spans: Array = [pts]
+		if r["kind"] != "ring" and not r.get("loop", false) and not String(r.get("name", "")).ends_with("Approach") \
+				and not land_in.is_empty():
+			spans = Geometry2D.intersect_polyline_with_polygon(pts, land_in)
+		var open_road: bool = not r.get("loop", false)
+		for span: PackedVector2Array in spans:
+			var along := _param_of(pts, span[0])
+			for i in span.size() - 1:
+				var a := span[i]
+				var b := span[i + 1]
+				# Boulevards stop at a roundabout's ring (see _outside_rings):
+				# carried on through, their carriageway covered the whole ring
+				# and the ground painted it as one big junction.
+				for piece: Array in _outside_rings(a, b, r):
+					var sq: int = int(piece[2]) if piece.size() > 2 else 0
+					# A road's own ends are square too (a round cap bulged hw
+					# past the end: a disc of junction into a ring, onto the
+					# esplanade, or past a short end extension).
+					# (And every joint within hw of an end: a short last segment
+					# left the one before it a round cap that bulged past the end.)
+					if open_road and (piece[0] as Vector2).distance_to(span[0]) < hw:
+						sq |= 2
+					if open_road and (piece[1] as Vector2).distance_to(span[-1]) < hw:
+						sq |= 1
+					_add_seg([piece[0], piece[1], hw, int(r["id"]), along + a.distance_to(piece[0]), r["kind"] != "minor", sq])
+				along += a.distance_to(b)
 	_extend_ends()
 	var stripes := ceili(field_h / 16.0)
 	_stripe_out.clear()
@@ -405,6 +457,84 @@ func bake_field(cell := 1.5) -> void:
 	for st in _stripe_out:
 		field.append_array(st)
 	_stripe_out.clear()
+
+
+## The parts of segment a–b outside every roundabout's ring (roads that
+## aren't rings, the Inner Ring included; the field only – traffic keeps its
+## own lanes). An arm stops where its corners reach the ring's outer kerb
+## (radius √(Ro² − hw²) on its centre line), so its square end closes the
+## mouth with no wedge of unmarked tarmac and only a sliver over the ring.
+func _outside_rings(a: Vector2, b: Vector2, r: Dictionary) -> Array:
+	var parts: Array = [[a, b]]
+	if r.get("ring", false):
+		return parts
+	var hw_r := float(r["w"]) * 0.5
+	for rb in roundabouts:
+		var c: Vector2 = rb["c"]
+		var Ro := float(rb["r"]) + float(rb["w"]) * 0.5
+		var R: float = sqrt(maxf(Ro * Ro - hw_r * hw_r, 1.0))
+		var next: Array = []
+		for pc: Array in parts:
+			var p0: Vector2 = pc[0]
+			var p1: Vector2 = pc[1]
+			var d := p1 - p0
+			var L := d.length()
+			if L < 0.01:
+				continue
+			var u := d / L
+			var t0 := (c - p0).dot(u)
+			var h2 := R * R - (p0 + u * t0 - c).length_squared()
+			if h2 <= 0.0:
+				next.append(pc)
+				continue
+			var hh := sqrt(h2)
+			var e0 := clampf(t0 - hh, 0.0, L)
+			var e1 := clampf(t0 + hh, 0.0, L)
+			# (Square ends where cut: a round cap reached hw past the cut – a
+			# disc of junction over the ring's entry.)
+			if e0 > 0.05:
+				next.append([p0, p0 + u * e0])
+			if e1 < L - 0.05:
+				next.append([p0 + u * e1, p1])
+		parts = next
+	# (Square ends on the cut: a round cap reached hw past it – a disc of
+	# junction over the ring's entry.)
+	for pc: Array in parts:
+		var sq := 0
+		for rb in roundabouts:
+			var Ro := float(rb["r"]) + float(rb["w"]) * 0.5
+			# (Every joint within a cap's reach of the ring: an interior vertex's
+			# round cap there bulged hw over the ring as well.)
+			var R := sqrt(maxf(Ro * Ro - hw_r * hw_r, 1.0)) + hw_r + 0.3
+			if (pc[1] as Vector2).distance_to(rb["c"]) < R:
+				sq |= 1
+			if (pc[0] as Vector2).distance_to(rb["c"]) < R:
+				sq |= 2
+		pc.append(sq)
+	return parts
+
+
+var _ring_c := {}       # ring road id -> roundabout centre (for the arms' give-way paint)
+
+
+func _ring_r(rid: int) -> float:
+	var pts: PackedVector2Array = roads[rid]["pts"]
+	return pts[0].distance_to(_ring_c[rid])
+
+
+## Metres along pts to the point nearest q.
+static func _param_of(pts: PackedVector2Array, q: Vector2) -> float:
+	var best := INF
+	var t_best := 0.0
+	var acc := 0.0
+	for i in pts.size() - 1:
+		var c := Geometry2D.get_closest_point_to_segment(q, pts[i], pts[i + 1])
+		var d := c.distance_to(q)
+		if d < best:
+			best = d
+			t_best = acc + pts[i].distance_to(c)
+		acc += pts[i].distance_to(pts[i + 1])
+	return t_best
 
 
 func _add_seg(s: Array) -> void:
@@ -459,13 +589,21 @@ func _extend_ends() -> void:
 			while ext > 0.5 and not (_on_other(p + d * ext + sd, int(r["id"]), base)
 					and _on_other(p + d * ext - sd, int(r["id"]), base)):
 				ext -= 0.5
+			# Into a roundabout: only until its corners reach the ring's outer
+			# kerb (carried on across the ring, its box covered the other arms'
+			# mouths and their give-way lines).
+			for rb in roundabouts:
+				var Ro := float(rb["r"]) + float(rb["w"]) * 0.5
+				var dc := p.distance_to(rb["c"])
+				if dc < Ro + hw:
+					ext = clampf(dc - sqrt(maxf(Ro * Ro - hw * hw, 1.0)), 0.0, ext)
 			road_ends.append([ri, e, p, d, ext])
 			if ext > 0.5:
 				var along := -ext if e == 0 else length_of(pts)
 				var a := p + d * ext if e == 0 else p
 				var b := p if e == 0 else p + d * ext
 				# (Square at its far end too: open past the far kerb.)
-				_add_seg([a, b, hw, int(r["id"]), along, r["kind"] != "minor", -1 if e == 0 else 1])
+				_add_seg([a, b, hw, int(r["id"]), along, r["kind"] != "minor", 2 if e == 0 else 1])
 
 
 func _on_other(p: Vector2, rid: int, n: int) -> bool:
@@ -520,8 +658,9 @@ func _sample(p: Vector2) -> Vector4:
 		var ab := b - a
 		var L2 := ab.length_squared()
 		var t_raw := (p - a).dot(ab) / L2 if L2 > 1e-6 else 0.0
-		if s.size() > 6 and (int(s[6]) == 1 and t_raw > 1.0 or int(s[6]) == -1 and t_raw < 0.0):
-			continue  # past a junction extension's square end
+		# s[6]: square ends (1: at b, 2: at a) – nothing past them.
+		if s.size() > 6 and ((int(s[6]) & 1) != 0 and t_raw > 1.0 or (int(s[6]) & 2) != 0 and t_raw < 0.0):
+			continue
 		var t := clampf(t_raw, 0.0, 1.0)
 		var q := a + ab * t
 		var dist := p.distance_to(q)
@@ -538,12 +677,28 @@ func _sample(p: Vector2) -> Vector4:
 	if best_s.is_empty():
 		return Vector4(100.0, 0.0, 0.0, 100.0)
 	var other := 100.0
+	var other_id := -1
 	for rid in kerbs:
-		if rid != int(best_s[3]):
-			other = minf(other, kerbs[rid])
+		if rid != int(best_s[3]) and kerbs[rid] < other:
+			other = kerbs[rid]
+			other_id = rid
 	var hw: float = best_s[2]
 	var off := best_off if absf(best_off) < hw + 3.0 else absf(best_off)
-	return Vector4(off, -hw if best_s[5] else hw, fmod(best_t, 64.0), other)
+	# An arm meeting a roundabout: z carries which side of it enters the ring
+	# (keep right: the right of travel towards the ring) – +64 when the entry
+	# lanes are on the + side of its centre line, +128 when on the − side.
+	var z := fposmod(best_t, 64.0)
+	if _ring_c.has(int(best_s[3])):
+		# On a roundabout's ring: +64 when the + side of its centre line is
+		# the inside (the island), +128 when the − side is.
+		var inside := p.distance_to(_ring_c[int(best_s[3])]) < _ring_r(int(best_s[3]))
+		z += 64.0 if (best_off >= 0.0) == inside else 128.0
+	elif other_id >= 0 and _ring_c.has(other_id) and not _ring_c.has(int(best_s[3])) and other < 14.0:
+		var a: Vector2 = best_s[0]
+		var b: Vector2 = best_s[1]
+		var towards := (b - a).dot((_ring_c[other_id] as Vector2) - p) > 0.0
+		z += 64.0 if towards else 128.0
+	return Vector4(off, -hw if best_s[5] else hw, z, other)
 
 
 ## CPU lookup (nearest texel): Vector4 as stored.

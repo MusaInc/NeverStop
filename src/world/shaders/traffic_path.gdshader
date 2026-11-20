@@ -18,6 +18,8 @@ uniform vec3 tint : source_color = vec3(1.0);
 uniform bool use_instance_color = false;
 uniform float emission = 0.0;
 uniform float roughness = 0.4;
+// 0 plain, 1 paint (clearcoat), 2 glass (sky reflections), 3 chrome.
+uniform int finish = 0;
 uniform sampler2D lane_tex : filter_nearest, repeat_disable;
 
 const float EASE = 12.0;     // Traffic.EASE
@@ -80,5 +82,22 @@ void fragment() {
 	ALBEDO = c;
 	ROUGHNESS = mix(roughness, roughness * 0.5, wetness);
 	METALLIC = use_instance_color ? 0.35 : 0.0;
+	if (finish == 1) {
+		// Lacquered paint: a glossy clear coat over a slightly metallic base.
+		METALLIC = 0.45;
+		ROUGHNESS = mix(0.3, 0.18, wetness);
+		CLEARCOAT = 1.0;
+		CLEARCOAT_ROUGHNESS = 0.08;
+	} else if (finish == 2) {
+		// Tinted glass: dark, mirror-smooth (the sky and street reflect in it).
+		ALBEDO = c * 0.6;
+		METALLIC = 0.75;
+		ROUGHNESS = 0.05;
+		SPECULAR = 0.9;
+	} else if (finish == 3) {
+		METALLIC = 1.0;
+		ROUGHNESS = 0.16;
+		ALBEDO = max(c, vec3(0.55));
+	}
 	EMISSION = tint * emission * (1.0 + 3.5 * night);  // headlights and tail lights after dark
 }

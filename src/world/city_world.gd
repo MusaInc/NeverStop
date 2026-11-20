@@ -19,6 +19,8 @@ const PROPS_LAYER := 1 << 4
 const HUMAN_LAYER := 1 << 5
 const HUMAN_ONLY_PROPS := ["cooling_tower"]
 const MODEL_DIR := "res://assets/models/"
+## Blender trees (TreeKit.near_mesh) within this range, procedural beyond.
+const TREE_NEAR := 110.0
 const PROP_RANGES := {
 	"streetlight": 260.0, "tree": 320.0, "water_tower": 520.0, "ac_unit": 240.0, "antenna": 700.0, "crane": 1200.0,
 	"traffic_light": 220.0, "roof_hut": 650.0, "tree_tall": 320.0, "cooling_tower": 450.0,
@@ -72,6 +74,7 @@ var car_far_meshes: Array[Mesh] = []  # two-box stand-ins (24 tris) for chunks p
 const CAR_NEAR := 260.0
 const CAR_FAR := 520.0
 var walker_mesh: Mesh
+var walker_meshes: Array = []   # one per body type
 var furniture_mat: StandardMaterial3D
 var trains: Trains
 var sea_sky: SeaAndSky   # port ships, boats, helicopter, airliner, gulls (visual only)
@@ -357,6 +360,20 @@ func _load_mesh(name: String) -> Mesh:
 	return mesh
 
 
+func _load_meshes(name: String) -> Array:
+	var path := MODEL_DIR + name + ".glb"
+	if not ResourceLoader.exists(path):
+		return []
+	var inst := (load(path) as PackedScene).instantiate()
+	var mis := inst.find_children("*", "MeshInstance3D", true, false)
+	mis.sort_custom(func(a, b): return String(a.name) < String(b.name))
+	var out: Array = []
+	for mi in mis:
+		out.append((mi as MeshInstance3D).mesh)
+	inst.free()
+	return out
+
+
 func _load_props() -> void:
 	for k in ["streetlight", "tree", "tree_tall", "water_tower", "ac_unit", "antenna", "crane", "viaduct", "clock_crown",
 			"harbour_dome", "beacon", "cathedral_top", "traffic_light", "roof_hut", "cooling_tower"]:
@@ -371,6 +388,9 @@ func _load_props() -> void:
 						_lamp_base = _lamp_mat.emission_energy_multiplier
 						m.surface_set_material(i, _lamp_mat)
 			prop_meshes[k] = m
+	# Street/park trees: WorldState's TreeKit species (shared foundation).
+	for sp in TreeKit.SPECIES:
+		prop_meshes["tree_" + sp] = TreeKit.mesh(sp)
 	for mode in 2:
 		var gm := ShaderMaterial.new()
 		gm.shader = load("res://src/world/shaders/lamp_glow.gdshader")
@@ -404,20 +424,18 @@ func _load_props() -> void:
 				cm.surface_set_material(i, sm)
 		car_meshes.append(cm)
 		car_far_meshes.append(_car_far_mesh(cm) if cm else null)
-	var walker := _load_mesh("pedestrian")
-	if walker:
-		walker_mesh = walker.duplicate()
-		var wshader: Shader = load("res://src/world/shaders/pedestrian.gdshader")
-		for i in walker_mesh.get_surface_count():
-			var src := walker_mesh.surface_get_material(i)
-			var sm := ShaderMaterial.new()
-			sm.shader = wshader
-			if src is BaseMaterial3D:
-				sm.set_shader_parameter("tint", (src as BaseMaterial3D).albedo_color)
-			var nm := String(src.resource_name) if src else ""
-			sm.set_shader_parameter("use_instance_color", nm == "shirt")
-			sm.set_shader_parameter("part", {"skin": 1, "pants": 2, "hair": 3}.get(nm, 0))
-			walker_mesh.surface_set_material(i, sm)
+	# Four body types (WorldState's Blender crowd, tools/blender/build_street.py),
+	# one surface each; pedestrian.gdshader colours and poses them from
+	# their UVs (shared Musa foundation).
+	walker_meshes = _load_meshes("pedestrians")
+	if not walker_meshes.is_empty():
+		var wm := ShaderMaterial.new()
+		wm.shader = load("res://src/world/shaders/pedestrian.gdshader")
+		for i in walker_meshes.size():
+			var m: Mesh = walker_meshes[i].duplicate()
+			m.surface_set_material(0, wm)
+			walker_meshes[i] = m
+		walker_mesh = walker_meshes[0]
 	_walk_paths = _pavement_paths()
 	for k in FURNITURE:
 		var fm := _load_mesh(k)
@@ -741,7 +759,7 @@ func _prop_boxes(kind: String) -> Array:
 			return [[Vector3(0.3, 6.2, 0.3), Vector3(0, 2.8, 0)]]
 		"sign_post":
 			return [[Vector3(0.14, 2.9, 0.14), Vector3(0, 1.45, 0)]]
-		"tree", "tree_tall":
+		"tree", "tree_tall", "tree_plane", "tree_lime", "tree_birch", "tree_pine", "tree_cherry", "tree_poplar":
 			return [[Vector3(0.36, 2.6, 0.36), Vector3(0, 1.3, 0)]]
 		"antenna":
 			return [[Vector3(0.3, 14.3, 0.3), Vector3(0, 7.15, 0)]]
@@ -1257,13 +1275,12 @@ func chunk_props(key: Vector2i) -> Array:
 			continue
 		var kind: String = p[0]
 		var xf: Transform3D = p[1]
-		if kind == "tree":
-			# Mix in the columnar tree and turn each one differently (looks
-			# only: the layout's tree positions don't change).
-			var h := hash(Vector2i(int(xf.origin.x * 4.0), int(xf.origin.z * 4.0)))
-			if h % 5 < 2 and prop_meshes.has("tree_tall"):
-				kind = "tree_tall"
-			xf.basis = xf.basis * Basis(Vector3.UP, (h % 628) * 0.01)
+		if kind == "tree" or kind == "tree_tall":
+			# A TreeKit species (mostly one per street), its own height,
+			# width, lean and turn (looks only: positions don't change).
+			var sc := xf.basis.get_scale().y
+			kind = "tree_" + TreeKit.pick(xf.origin)
+			xf.basis = TreeKit.shape(xf.origin, sc)
 		if not broken.is_empty() and broken.has(item_key(xf.origin)):
 			continue
 		out.append([kind, xf])
@@ -1325,15 +1342,37 @@ func _add_props(root: Node3D, key: Vector2i) -> void:
 		var list: Array = by_kind[kind]
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
+		var is_tree: bool = kind.begins_with("tree_")
+		mm.use_custom_data = is_tree
 		mm.mesh = mesh
 		mm.instance_count = list.size()
 		for j in list.size():
 			mm.set_instance_transform(j, list[j])
+			if is_tree:
+				mm.set_instance_custom_data(j, TreeKit.tint((list[j] as Transform3D).origin, kind.trim_prefix("tree_")))
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = "Props_" + kind
 		mmi.multimesh = mm
-		mmi.visibility_range_end = PROP_RANGES.get(kind, 300.0)
+		mmi.visibility_range_end = PROP_RANGES.get(kind, 320.0 if is_tree else 300.0)
 		mmi.visibility_range_end_margin = 20.0
+		var near: Mesh = TreeKit.near_mesh(kind.trim_prefix("tree_")) if is_tree else null
+		if near:
+			# Blender tree up close, the procedural one from TREE_NEAR on
+			# (same instances, transforms and tints: one buffer).
+			var nm := MultiMesh.new()
+			nm.transform_format = MultiMesh.TRANSFORM_3D
+			nm.use_custom_data = true
+			nm.mesh = near
+			nm.instance_count = list.size()
+			nm.buffer = mm.buffer
+			var nmi := MultiMeshInstance3D.new()
+			nmi.name = "Props_" + kind + "_near"
+			nmi.multimesh = nm
+			nmi.visibility_range_end = TREE_NEAR
+			nmi.visibility_range_end_margin = 10.0
+			root.add_child(nmi)
+			mmi.visibility_range_begin = TREE_NEAR
+			mmi.visibility_range_begin_margin = 10.0
 		if kind in ["ac_unit", "streetlight", "traffic_light"]:
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(mmi)
@@ -1485,8 +1524,9 @@ func _add_walkers(root: Node3D, key: Vector2i) -> void:
 	var rect := Rect2(Vector2(key) * CHUNK, Vector2(CHUNK, CHUNK))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(key) ^ 0x5eed
-	var xf: Array = []
-	var custom: Array = []
+	var groups: Array = []  # per body type: [xf, custom, colour]
+	for i in walker_meshes.size():
+		groups.append([])
 	for path in _walk_paths:
 		var seg := _clip_segment(path[0], path[1], rect)
 		if seg.is_empty():
@@ -1501,27 +1541,26 @@ func _add_walkers(root: Node3D, key: Vector2i) -> void:
 		var n := int(length / 9.0 * traffic_density + rng.randf())
 		for i in n:
 			var sc := rng.randf_range(0.9, 1.08)
-			xf.append(Transform3D(basis.scaled(Vector3.ONE * sc), Vector3(s0.x, 0.15, s0.z)))
-			custom.append(Color(rng.randf_range(1.1, 1.6), rng.randf_range(0.0, length), length, 0.0))
-	if xf.is_empty():
-		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
-	mm.use_custom_data = true
-	mm.mesh = walker_mesh
-	mm.instance_count = xf.size()
-	var items: Array = []
-	for i in xf.size():
-		items.append([xf[i], custom[i], CLOTHES[rng.randi() % CLOTHES.size()]])
-	mm.buffer = _instance_buffer(items)
-	mm.custom_aabb = AABB(Vector3(rect.position.x, -1.0, rect.position.y), Vector3(CHUNK, 70.0, CHUNK))  # walks stay in the chunk
-	var mmi := MultiMeshInstance3D.new()
-	mmi.name = "Walkers"
-	mmi.multimesh = mm
-	mmi.visibility_range_end = WALKER_RANGE
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(mmi)
+			(groups[rng.randi() % groups.size()] as Array).append([Transform3D(basis.scaled(Vector3.ONE * sc), Vector3(s0.x, 0.15, s0.z)),
+				Color(rng.randf_range(1.1, 1.6), rng.randf_range(0.0, length), length, 0.0), CLOTHES[rng.randi() % CLOTHES.size()]])
+	for gi in groups.size():
+		var items: Array = groups[gi]
+		if items.is_empty():
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.use_custom_data = true
+		mm.mesh = walker_meshes[gi]
+		mm.instance_count = items.size()
+		mm.buffer = _instance_buffer(items)
+		mm.custom_aabb = AABB(Vector3(rect.position.x, -1.0, rect.position.y), Vector3(CHUNK, 70.0, CHUNK))  # walks stay in the chunk
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "Walkers%d" % gi
+		mmi.multimesh = mm
+		mmi.visibility_range_end = WALKER_RANGE
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mmi)
 
 
 ## Cars parked along both kerbs of the ordinary streets (not the avenues,

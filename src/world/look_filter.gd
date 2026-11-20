@@ -8,11 +8,22 @@ const STYLES := {
 	"comic": 1,
 	"toon": 2,
 	"painted": 3,
+	"crisp": 4,
 	"debug_pass": 8,
 	"debug_edges": 9,
 }
 ## Per-style shader parameters on top of the shader defaults.
 const TUNING := {
+	# Crisp (default since 0.7.3): a cleaner image, not a cartoon. Half-strength
+	# small Kuwahara irons out texture noise/shimmer, thin depth outlines in a
+	# darkened scene colour separate shapes, gentle grade. No bands, halftone,
+	# haze, speed lines or vignette (the game draws its own fog and vignette).
+	# 2026-11-20 visual pass: ~65% weaker (smoothing 0.55→0.18 flattened
+	# paving and Blender detail into posterised patches; ink 0.55→0.3).
+	"crisp": {"smooth_amount": 0.18, "line_px": 0.65, "depth_edge": 0.08, "color_edge": 0.6,
+		"line_far": 220.0, "ink_amount": 0.3, "ink_shade": 1.0, "saturation": 1.05,
+		"exposure": 1.0, "lift": 0.0, "split_tone": 0.06, "haze_amount": 0.0, "vignette": 0.0,
+		"speed_lines": 0.0, "lens": 0.6},
 	# Clean comic: crisp ink and flat cel tones, no halftone grain, gentle grade.
 	"comic": {"line_px": 1.15, "bands": 3.0, "band_soft": 0.1, "saturation": 1.3, "halftone": 0.0,
 		"color_edge": 0.38, "exposure": 1.06, "lift": 0.015, "split_tone": 0.22, "vignette": 0.12,
@@ -58,6 +69,11 @@ func set_style(look: String) -> void:
 	for u in defaults:
 		mat.set_shader_parameter(u["name"], null)  # back to shader default
 	mat.set_shader_parameter("style", id)
+	# The screen copy only holds the opaque pass. Crisp draws FIRST among the
+	# transparent surfaces so water, glass, rain and particles land on top of
+	# it (drawn last, it painted the sea out). Cartoon styles keep the old
+	# order (after transparents, before the web at 127).
+	mat.render_priority = -128 if look == "crisp" else 100
 	var t: Dictionary = TUNING.get(look, {})
 	for k in t:
 		mat.set_shader_parameter(k, t[k])

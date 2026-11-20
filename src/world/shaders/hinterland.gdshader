@@ -6,6 +6,7 @@ render_mode diffuse_burley, specular_disabled;
 // scene fog does the aerial perspective.
 
 global uniform float night;
+global uniform vec3 sky_horizon;
 global uniform float wetness;
 
 varying vec3 v_world;
@@ -40,9 +41,18 @@ void fragment() {
 	float forest_k = smoothstep(0.35, 0.6, n + 0.25 * smoothstep(20.0, 200.0, y)) * (1.0 - smoothstep(380.0, 560.0, y + n * 120.0));
 	vec3 c = mix(meadow, forest, forest_k);
 	c = mix(sand, c, smoothstep(1.5, 9.0, y + n2 * 4.0));
-	float rocky = smoothstep(0.42, 0.62, slope + n * 0.15) + smoothstep(480.0, 720.0, y + n * 160.0);
+	// Treeline ~520 m (ragged), then scree and bare rock in strata; steep
+	// faces are rock at any height.
+	float rocky = smoothstep(0.42, 0.62, slope + n * 0.15) + smoothstep(500.0, 760.0, y + n * 180.0 - slope * 120.0);
+	vec3 scree = mix(vec3(0.46, 0.44, 0.41), vec3(0.36, 0.34, 0.33), vnoise(p * 0.012));
+	rock = mix(rock, scree, smoothstep(0.35, 0.15, slope) * 0.6);
 	c = mix(c, rock, clamp(rocky, 0.0, 1.0));
-	float snowy = smoothstep(780.0, 900.0, y + n * 140.0) * (1.0 - smoothstep(0.55, 0.75, slope));
+	// Snow only on the high massifs: lower on shaded (north-facing) slopes,
+	// lying in gullies and on gentle ledges, never on the steep faces – so
+	// the summits are patched white instead of a crust along the skyline.
+	float north_face = clamp(-v_wn.z, -1.0, 1.0);
+	float line = 820.0 - 120.0 * north_face + n * 150.0 - n2 * 60.0;
+	float snowy = smoothstep(line, line + 90.0, y) * (1.0 - smoothstep(0.42, 0.62, slope + n2 * 0.1));
 	c = mix(c, snow, snowy);
 	// Wet sand darkens at the waterline.
 	c *= 1.0 - 0.25 * (1.0 - smoothstep(-1.0, 2.5, y));
@@ -56,9 +66,15 @@ void fragment() {
 	float s0 = fbm(p * 0.045);
 	float gx = fbm((p + vec2(e, 0.0)) * 0.045) - s0;
 	float gz = fbm((p + vec2(0.0, e)) * 0.045) - s0;
-	float amp = 6.0 * (0.4 + 0.6 * clamp(rocky + forest_k * 0.6, 0.0, 1.0));
+	float dist = length(v_world - CAMERA_POSITION_WORLD);
+	// (Far off the fine relief only shimmers: fade it.)
+	float amp = 6.0 * (0.4 + 0.6 * clamp(rocky + forest_k * 0.6, 0.0, 1.0)) * (1.0 - 0.75 * smoothstep(1800.0, 5000.0, dist));
 	vec3 wn = normalize(v_wn - vec3(gx, 0.0, gz) * amp);
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
-	ALBEDO = c;
+	// Aerial perspective on top of the scene fog: distant ranges lose
+	// contrast and go blue-grey toward the horizon colour.
+	float haze = (1.0 - exp(-dist / 9000.0)) * 0.4 * (1.0 - night);
+	ALBEDO = c * (1.0 - haze);
+	EMISSION = sky_horizon * haze * 0.55;
 	ROUGHNESS = mix(0.95, 0.6, snowy);
 }
